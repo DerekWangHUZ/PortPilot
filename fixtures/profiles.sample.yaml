@@ -1,0 +1,32 @@
+# 合成的 profiles.yaml 样例（结构与 Clash Verge 2.5.x 一致）
+current: RemoteA
+items:
+- uid: Merge
+  type: merge
+  name: null
+  file: Merge.yaml
+  updated: 1785494110
+- uid: Script
+  type: script
+  name: null
+  file: Script.js
+  updated: 1785494110
+- uid: GroupTemplate
+  type: groups
+  name: null
+  file: GroupTemplate.yaml
+  updated: 1785494120
+- uid: RemoteA
+  type: remote
+  name: 示例订阅
+  file: RemoteA.yaml
+  url: https://example.com/sub
+  selected:
+  - name: 节点选择
+    now: 🇭🇰 香港 01
+  updated: 1792237883
+  option:
+    update_interval: 1440
+    allow_auto_update: true
+    merge: MergeAA
+    groups: GroupTemplate

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PortPilot</title>
+<link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-chrome" data-drag>
+      <div class="traffic">
+        <button class="light close" data-win="close" aria-label="关闭"></button>
+        <button class="light min" data-win="min" aria-label="最小化"></button>
+        <button class="light max" data-win="max" aria-label="最大化"></button>
+      </div>
+    </div>
+    <div class="brand" data-drag>
+      <div class="brand-mark">P</div>
+      <div class="brand-text">
+        <b>PortPilot</b>
+        <span id="brand-sub">端口管理器</span>
+      </div>
+    </div>
+
+    <nav class="nav" id="nav"></nav>
+
+    <div class="sidebar-foot">
+      <div class="core-card" id="core-card">
+        <div class="core-line">
+          <i class="dot" id="core-dot"></i>
+          <span id="core-text">正在检测…</span>
+        </div>
+        <small id="core-detail">—</small>
+      </div>
+      <button class="nav ghost" data-act="quit">
+        <svg viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg>
+        <span>退出</span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="main-drag" data-drag></div>
+    <div class="progress" id="progress"></div>
+    <div class="view" id="view"></div>
+  </main>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<div class="modal-mask" id="modal-mask"><div class="modal" id="modal"></div></div>
+
+<script src="shared/util.js"></script>
+<script src="shared/yamledit.js"></script>
+<script src="shared/model.js"></script>
+<script src="shared/state.js"></script>
+<script src="shared/payload.js"></script>
+<script src="shared/vergetpl.js"></script>
+<script src="shared/api.js"></script>
+<script src="shared/log.js"></script>
+<script src="shared/core.js"></script>
+<script src="js/bridge.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/pages/overview.js"></script>
+<script src="js/pages/ports.js"></script>
+<script src="js/pages/nodes.js"></script>
+<script src="js/pages/connections.js"></script>
+<script src="js/pages/rules.js"></script>
+<script src="js/pages/settings.js"></script>
+<script src="js/pages/logs.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

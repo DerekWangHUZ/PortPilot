@@ -1,0 +1,63 @@
+# 合成的 Clash Verge 运行时配置样例（不含任何真实订阅数据，只用于单元测试）
+mode: rule
+mixed-port: 7897
+allow-lan: false
+log-level: info
+ipv6: true
+external-controller: ''
+secret: set-your-secret
+unified-delay: true
+dns:
+  enable: true
+  ipv6: false
+  nameserver:
+  - 223.5.5.5
+  fallback:
+  - 8.8.8.8
+external-controller-pipe: \\.\pipe\verge-mihomo-sidecar-release-0000000000000000000000000000000000000000000000000000000000000000
+external-controller-cors:
+  allow-origins:
+  - tauri://localhost
+  allow-private-network: true
+tun:
+  enable: true
+  stack: gvisor
+  auto-route: true
+profile:
+  store-selected: true
+proxies:
+- name: '🇭🇰 香港 01'
+  type: hysteria2
+  server: hk1.example.com
+  port: 443
+  password: example
+- name: '🇯🇵 日本 01'
+  type: anytls
+  server: jp1.example.com
+  port: 443
+  password: example
+- name: 台湾 01
+  type: ss
+  server: tw1.example.com
+  port: 8388
+  cipher: aes-128-gcm
+  password: example
+proxy-groups:
+- name: 节点选择
+  type: select
+  proxies:
+  - 🇭🇰 香港 01
+  - 🇯🇵 日本 01
+  - 台湾 01
+- name: 自动选择
+  type: url-test
+  url: http://cp.cloudflare.com/generate_204
+  interval: 300
+  proxies:
+  - 🇭🇰 香港 01
+  - 🇯🇵 日本 01
+rules:
+- DOMAIN-SUFFIX,lan,DIRECT
+- DOMAIN-SUFFIX,local,DIRECT
+- GEOIP,CN,DIRECT
+- MATCH,节点选择
