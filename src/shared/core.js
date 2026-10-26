@@ -88,8 +88,7 @@
           vergeDir: info.vergeDir,
           clashConfigPath: info.clashConfigPath,
           profilesYamlPath: info.profilesYamlPath,
-          profilesDir: info.profilesDir,
-          webDir: info.webDir
+          profilesDir: info.profilesDir
         };
         core.store = stateMod.createStore(io, core.paths.stateFile);
         core.runLog = logMod.createLog(io, core.paths.runLogFile);
@@ -443,13 +442,21 @@
       if (!target) return Promise.reject(new Error('找不到端口 ' + port));
       var group = model.groupName(port);
       target.node = node;
-      return core.api.selectNode(group, node).then(function () {
+      var applied = false;
+      return core.api.selectNode(group, node).catch(function (err) {
+        // 组还没进内核（新建端口从未应用过，内核对不存在的组回 404）：
+        // 走一次完整应用把 listeners 与分组建出来，节点选择作为组默认值一起生效
+        if (!err || err.status !== 404 || !core.core_.ok) throw err;
+        applied = true;
+        return core.applyAll('为端口 ' + port + ' 建立分组并选择节点');
+      }).then(function () {
         return core.api.proxyState(group);
       }).then(function (st) {
         // 回读到的就是内核当前的选择，直接作为「已保存」的依据
         core.groupNow[target.port] = st.now || node;
         return core.save();
       }).then(function () {
+        if (applied) return null; // 完整应用时模板已经写过，不再重复写
         // 让默认值也跟着走：写一次模板（不重载内核）
         return vergetpl.apply({
           io: io,

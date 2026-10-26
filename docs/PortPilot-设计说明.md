@@ -6,7 +6,7 @@
 工具不常驻、无托盘、无服务、无定时轮询；关窗即退出，且退出后已打开的端口继续可用。
 界面只用「端口」「节点」「开关」；禁用词：建立、生效、接管、槽位、持久层、脚本层、重载。
 
-## 2. 事实基础（在本机实测确认）
+## 2. 事实基础
 
 | 事实 | 结论 |
 | --- | --- |
@@ -49,20 +49,21 @@
 6. 用 TCP 连接探测每个已打开端口，把真实结果作为「状态」；不一致就显示「打开失败」。
 7. 保存 `state.json`，写运行记录。
 
-选节点（`core.selectNode()`）：`PUT /proxies/PortPilot-<端口>` → 回读 `now` 校验 → 更新 `state.json` → 同步写一次模板（只为把默认值也改成新节点，不动内核）。不重载，不打断已有连接。
+选节点（`core.selectNode()`）：`PUT /proxies/PortPilot-<端口>` → 回读 `now` 校验 → 更新 `state.json` → 同步写一次模板（只为把默认值也改成新节点，不动内核）。不重载，不打断已有连接。例外：新建端口还没应用过（组不在内核，`PUT` 回 404）时，自动走一次 `applyAll()` 把监听器与分组建出来，选中节点作为组默认值一起生效。
 
-## 4.5 无边框窗口（对齐参考项目 Wails 的做法）
+## 4.5 无边框窗口
 
-- `FormBorderStyle.None` + 保留 `WS_THICKFRAME`，`WM_NCCALCSIZE` 返回 0（客户区铺满整窗）。
-- `DwmExtendFrameIntoClientArea(hwnd, {1,1,1,1})`：拿到系统投影与 Win11 圆角，又不显示标题栏，且**窗口四周没有自绘边框**（此前那圈 6px 是我自己画的，已去掉）。
-- 非最大化时客户区底部多算 1px（`rgrc.Bottom += 1`）并把 WebView2 底部内边距设为 1px —— 这是 Wails 消除无边框窗口缩放闪白的同一处写法。
-- `WM_ERASEBKGND` 直接返回 1（不擦背景），并设置 WebView2 的 `DefaultBackgroundColor` 为主题底色，杜绝缩放瞬间露出白底。
-- 缩放不做几何计算：前端在边缘 6px 内按下时，由宿主发 `WM_NCLBUTTONDOWN` + 对应的 HT 码，让系统跑它自己的缩放回路（因此有对齐、贴边等原生行为）。
-- 最大化用 `WM_GETMINMAXINFO` 限定到显示器工作区，避免盖住任务栏。
+- 窗口由 Wails v2 以 `Frameless: true` 创建，并保留默认的 `DisableFramelessWindowDecorations: false` —— 于是照样有系统投影与 Win11 圆角，而没有标题栏。
+- 起始底色由 `BackgroundColour` 按当前系统主题给出（读注册表决定浅/深），避免打开瞬间闪白底。
+- 拖动：前端在 `[data-drag]` 区域按下时调用 `window.beginDrag`，宿主取本进程主窗口句柄后发 `WM_NCLBUTTONDOWN` + `HTCAPTION`，让系统跑它自己的拖动回路。
+- 缩放：前端在边缘 6px 内按下时调用 `window.beginResize` 并带上方位，宿主换算成对应的 HT 码后同样发 `WM_NCLBUTTONDOWN`（因此有对齐、贴边等原生行为）。
+- 最小化/最大化/关闭走 Wails 运行时（`WindowMinimise` / `WindowMaximise` / `Quit`）。
 
 ## 5. 界面与宿主的分工
 
-- **宿主（C# / .NET Framework 4.8 / WebView2，约 900 行）**：只做 I/O 原语——命名管道上的裸 HTTP/1.1、文件原子写/备份、TCP 连通性与可绑定性探测、系统深浅色、文件对话框、`clash-verge.yaml` 变化监听（`FileSystemWatcher`，事件驱动）。自带 `--selftest`。
+- **宿主（Go + Wails v2，单文件 exe）**：只做 I/O 原语——命名管道上的裸 HTTP/1.1（`pipehttp.go`）、文件原子写/备份（`fileops.go`）、TCP 连通性与可绑定性探测（`netprobe.go`）、系统深浅色（`theme.go`）、系统对话框（`dialogs.go`，走 Wails 运行时）、窗口拖动与缩放（`win.go`）、`clash-verge.yaml` 时间戳监听（`app.go`）。自带 `--selftest`。
+- **单文件 exe 的来源**：`main.go` 用 `//go:embed all:src/web` 把界面编进二进制——产物只有一个 exe，不需要旁边的 DLL 或 web 目录。
+- **前端接口**：`bridge.go` 的 `App.Call(method, params)` 是前端唯一入口，方法名与返回结构固定；`src/web/js/bridge.js` 只把 `invoke` 转发给 Wails 绑定，`src/shared` 与各页面不感知传输层。
 - **前端（HTML/CSS/JS，无打包器、无 npm 依赖）**：领域逻辑（状态模型、期望的监听器与分组、配置文本组装、模板读写）都在 `src/shared/`，浏览器与 Node 单测共用同一份代码。
 - **状态唯一来源**：`core.view()` 把「开关＝用户意图」「状态＝TCP 探测结果」「节点＝state.json + 内核回读」集中算一次，七个页面全部渲染它，不存在两个页面说法不一致。
 
@@ -77,12 +78,31 @@
 | 订阅切换（Verge 里换 profile） | 两份模板属于订阅，端口随新的当前订阅重建；工具运行时会监听 `clash-verge.yaml` 变化并自动补一次 |
 | 用户在 Verge 界面改写了模板 | 每次写入前备份、启动时自愈；`option.merge`/`option.groups` 为空时会自动新建条目并改 `profiles.yaml` |
 | 配置文件里已有别人的 `listeners` | 不覆盖，把我们的条目插进同一个键 |
+| 启动失败（无控制台，`windowsgui`） | 错误同时写日志与弹框，绝不静默退出（`report.go`）。日志按 `%APPDATA%` → `%LOCALAPPDATA%` → exe 同目录依次找可写位置 |
+| 缺 WebView2 运行时 | 启动前 `preflight` 先查（目录 + 注册表兜底），缺失时弹中文说明并给出下载页，而不是让 Wails 内部报错退出 |
+| WebView2 数据目录不可写 | 按 `%APPDATA%` → `%LOCALAPPDATA%` → `%TEMP%` → exe 同目录依次回退，日志记录实际用的那一个（`preflight.go`） |
+| 同名文件挡在数据目录处 | 先改名为 `<目录>.blocked` 再建目录，不让启动卡死 |
+| 双击被系统当不可信程序 | 构建后清除下载标记（`Unblock-File` + 删 `Zone.Identifier`），并把目录完整性标签校正为 Medium（`build.ps1`） |
 
 ## 7. 源码结构
 
 ```
-build.ps1              下载依赖（Roslyn + WebView2 SDK，已就位则跳过）→ 编译 → 打包 → 自检
-src/host/              C# 宿主：Program / MainForm / Bridge / PipeHttp / FileOps / Net / Theme / Dialogs / SelfTest
+build.ps1              准备界面资源 → 生成图标/版本/DPI 资源 → go build → 校验 → 自检
+main.go                Wails 入口：go:embed 界面 + 无边框窗口选项
+app.go                 应用生命周期：系统主题与 clash-verge.yaml 变化 → 事件推给前端
+bridge.go              App.Call 分发（前端唯一入口）
+pipehttp.go            命名管道上的 HTTP/1.1（发现管道、分块解码、超时）
+fileops.go             文件原语：读、原子写、备份、还原
+netprobe.go            端口连通性与可绑定性探测
+theme.go               系统深浅色（注册表）
+dialogs.go             系统对话框（Wails 运行时）
+win.go                 窗口拖动/缩放与进程探测
+preflight.go           启动前检查：WebView2 运行时、数据目录可写性（含回退）
+report.go              日志与错误上报：写文件 + 弹框，启动失败绝不静默
+paths.go               路径约定（AppData / 备份 / 日志 / Verge 数据目录）
+selftest.go            --selftest 自检
+build/windows/         图标、版本信息、DPI 清单
+build/winresgen/       把上面三者编成 wails_winres_amd64.syso
 src/shared/            JS 领域逻辑：util / yamledit / model / state / payload / vergetpl / api / log / core
 src/web/               index.html + css/app.css + js（bridge / ui / app / pages/*）
 tests/                 node --test 单元测试
@@ -90,8 +110,10 @@ tests/e2e-pipeline.js  真机端到端验收（会改内核状态，跑完自动
 fixtures/              合成样例，用于单元测试
 ```
 
-## 8. 真机验收结果
+> `src/web/shared/` 是构建脚本从 `src/shared/` 复制生成的（`go:embed` 只能嵌入 `src/web` 之下的文件），已在 `.gitignore` 中，不要手工编辑。
+
+## 8. 验收
 
 `node tests/e2e-pipeline.js` 16 项全通过：管道发现、内核版本、节点列表、端口空闲、配置组装、应用到内核、端口开始监听、分组生效、默认选中指定节点、切换节点即时生效、HTTP 代理返回 204、CONNECT 隧道可用、连接被标记到该端口、关闭后停止监听、还原原配置。
 
-界面侧人工验收：空状态新建 10801 → 拨开开关（TCP 可连、模板写入并留下备份）→ 搜索「香港」并选节点（内核回读一致、状态显示已保存）→ 通过 10801 代理返回 204 → 关窗后端口继续可用 → 重启 Clash Verge 后重新生成的 `clash-verge.yaml` 里带着 `listeners` 与 `PortPilot-10801` 组，节点选择仍是原来那个。
+界面验收：新建 10801 → 打开开关（TCP 可连、模板写入并留下备份）→ 搜索并选节点（内核回读一致、状态显示已保存）→ 通过 10801 代理返回 204 → 关窗后端口继续可用 → 重启 Clash Verge 后重新生成的 `clash-verge.yaml` 里带着 `listeners` 与 `PortPilot-10801` 组，节点选择保持不变。

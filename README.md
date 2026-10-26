@@ -8,23 +8,28 @@
 - **只做三件事**：建/删端口、开/关、选节点。写配置与让内核应用都由工具在后台完成，不询问、不阻塞。
 - **关窗后端口继续可用**：端口由 Clash Verge 的核听，工具退出不影响已打开的端口。
 - **全文中文**，只使用「端口」「节点」「开关」三个概念；策略组只是实现细节，只在「规则」页只读展示。
-- **无边框窗口**（做法与参考项目 Wails 一致）：不显示系统标题栏，把 DWM 边框向客户区延伸 1px 以保留系统投影与 Win11 圆角，窗口四周没有任何自绘边框；左上角是 13px 的红黄绿三个按钮（鼠标移上去才显示字形），按住侧栏顶条或品牌区可拖动窗口，四边与四角 6px 内可缩放，双击可最大化；缩放时不会闪白底。
+- **单文件 exe**：界面与依赖全部内嵌，取 `PortPilot.exe` 一个文件即可运行，不需要旁边的 DLL 或 web 目录。
+- **无边框窗口**：不显示系统标题栏，保留系统投影与 Win11 圆角；左上角是 13px 的红黄绿三个按钮（鼠标移上去才显示字形），按住侧栏顶条或品牌区可拖动窗口，四边与四角 6px 内可缩放，双击可最大化。
 
 ## 下载
 
-到 [Releases](https://gitlab.com/DerekWangHUZ/PortPilot/-/releases) 下载 `PortPilot-v0.2.0-win-x64.zip`，解压后直接运行 `PortPilot.exe`，不需要安装。
+下载 `PortPilot-v1.1-windows-amd64.exe`，双击运行，不需要安装，也不会在 exe 旁边生成任何文件。
+
+> 首次运行未签名程序时，Windows 可能提示「无法验证发布者」，点「运行」即可；此后再打开不再提示。
 
 ![界面](docs/screenshot.png)
 
 ## 从源码构建
+
+在项目根目录执行：
+
 ```powershell
-git clone https://gitlab.com/DerekWangHUZ/PortPilot.git
-cd PortPilot
-.\build.ps1            # 首次会下载 Roslyn 编译器与 WebView2 SDK，然后编译 + 自检
-.\dist\PortPilot.exe   # 启动
+.\build.ps1            # 准备界面资源 -> 生成图标/版本资源 -> 编译 -> 校验 -> 自检
+.\dist\PortPilot.exe   # 启动（单文件）
 ```
 
-要求：Windows 10/11 + .NET Framework 4.8（系统自带）+ Microsoft Edge WebView2 运行时（Win11 与装了 Edge 的机器都有）。
+要求：Windows 10/11 + [Microsoft Edge WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)（Win11 与装了 Edge 的机器都有）。
+构建要求：Go 1.21+ 与 Windows PowerShell 5.1+；依赖优先用本机模块缓存，缺失时自动联网补齐。
 不需要管理员权限，不会触发防火墙提示：所有端口只监听 `127.0.0.1`。
 
 ## 七个页面
@@ -55,18 +60,20 @@ cd PortPilot
 | 端口与设置 | `%APPDATA%\PortPilot\state.json` |
 | 运行记录 | `%APPDATA%\PortPilot\run-log.jsonl` |
 | 每次写入前的备份 | `%APPDATA%\PortPilot\backup\<时间戳>\` |
-| 错误日志（如启动失败） | `%APPDATA%\PortPilot\error.log` |
+| 启动与错误日志 | `%APPDATA%\PortPilot\portpilot.log` |
+| WebView2 数据（浏览器缓存） | `%APPDATA%\PortPilot.exe\`（WebView2 约定的位置） |
 | 端口定义 | `<Verge 数据目录>\profiles\<option.merge 指向的文件>` |
 | 每端口的分组 | `<Verge 数据目录>\profiles\<option.groups 指向的文件>` |
 
 写入前一定先备份；应用失败会自动把模板还原，并把内核退回上一次成功的配置。
+正常运行时 exe 旁边不会产生任何文件；只有当用户配置目录不可写（例如受限运行）时，日志与 WebView2 数据才会回退到 exe 同目录。
 
 ## 验证
 
 ```powershell
-node --test                     # 30 项单元测试（配置组装、模板读写、状态归一化）
-.\dist\PortPilot.exe --selftest # 宿主自检：管道发现、内核握手、文件原子写与备份、端口探测、主题
-node tests/e2e-pipeline.js 10801  # 真机端到端：真的开端口、代理流量、切节点、关闭、还原
+node --test                        # 35 项单元测试（配置组装、模板读写、状态归一化、选节点自愈）
+.\dist\PortPilot.exe --selftest    # 宿主自检：内嵌资源、管道发现、内核握手、文件原子写与备份、端口探测、主题
+node tests/e2e-pipeline.js 10801   # 真机端到端：真的开端口、代理流量、切节点、关闭、还原
 ```
 
 真机验收已全部通过，包括：空状态建端口 → 打开 → 选节点 → 通过端口代理流量 → 关掉后真正停止监听 → 关窗后端口仍在 → 重启 Clash Verge 后端口与节点选择都还在。
