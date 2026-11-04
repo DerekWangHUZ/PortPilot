@@ -193,3 +193,99 @@ test('composeListenersOnly 只动 listeners', () => {
   assert.ok(text.includes('listeners:'));
   assert.ok(!text.includes('proxy-groups'));
 });
+
+/* ---------- tun 段做平（对应 TUN 兼容修复） ---------- */
+
+const RUNTIME_TUN = {
+  enable: true,
+  device: 'Mihomo',
+  stack: 'mixed',
+  'dns-hijack': ['any:53'],
+  'auto-route': true,
+  'auto-detect-interface': true,
+  mtu: 9000,
+  gso: false,
+  'gso-max-size': 65536,
+  'endpoint-independent-nat': false,
+  'udp-timeout': 60
+};
+
+test('flattenTun 用内核运行值整体覆写配置文本里的 tun 段', () => {
+  const text = payload.flattenTun(FIXTURE, RUNTIME_TUN);
+  assert.ok(text.includes('tun:'));
+  assert.ok(text.includes('  enable: true'));
+  assert.ok(text.includes('  device: "Mihomo"'));
+  assert.ok(text.includes('  stack: "mixed"'));
+  assert.ok(text.includes('  dns-hijack:'));
+  assert.ok(text.includes('  - "any:53"'));
+  assert.ok(text.includes('  mtu: 9000'));
+  assert.ok(text.includes('  gso: false'));
+  assert.ok(text.includes('  gso-max-size: 65536'));
+  // 原文本里的旧值被替换掉
+  assert.ok(!text.includes('stack: gvisor'));
+  // 其它内容不受影响
+  assert.ok(text.includes('mixed-port: 7897'));
+  assert.ok(text.includes('profile:'));
+  assert.ok((text.match(/^tun:$/gm) || []).length, 1);
+});
+
+test('flattenTun 不在白名单里的键（如 file-descriptor）不会写进配置', () => {
+  const text = payload.flattenTun(FIXTURE, { enable: true, 'file-descriptor': 9, 'inet6-address': ['fdfe::/64'] });
+  assert.ok(!text.includes('file-descriptor'));
+  assert.ok(!text.includes('inet6-address'));
+  assert.ok(text.includes('  enable: true'));
+});
+
+test('flattenTun 是幂等的：连续两次结果一致', () => {
+  const first = payload.flattenTun(FIXTURE, RUNTIME_TUN);
+  const second = payload.flattenTun(first, RUNTIME_TUN);
+  assert.strictEqual(first, second);
+});
+
+test('flattenTun 的输出能被 mihomo 的 tunSchema 键读回（json/yaml 键一致）', () => {
+  // 用 flattenTun 产出再次作为输入做平（模拟「应用 → 回读 GET /configs → 再做平」的循环）
+  const tunFromKernel = { enable: true, stack: 'system', 'auto-route': true, 'auto-detect-interface': true };
+  const once = payload.flattenTun(FIXTURE, tunFromKernel);
+  const twice = payload.flattenTun(once, tunFromKernel);
+  assert.strictEqual(once, twice);
+  assert.ok(twice.includes('  stack: "system"'));
+});
+
+test('flattenTun：配置没有 tun 键时新建；空对象/非对象时原样返回', () => {
+  const noTun = FIXTURE.replace(/^tun:[\s\S]*?profile:/m, 'profile:');
+  assert.ok(!noTun.includes('tun:'));
+  const added = payload.flattenTun(noTun, { enable: true, stack: 'gvisor' });
+  assert.ok(added.includes('tun:'));
+  assert.ok(added.includes('  enable: true'));
+  assert.ok(added.includes('  stack: "gvisor"'));
+
+  assert.strictEqual(payload.flattenTun(FIXTURE, null), FIXTURE);
+  assert.strictEqual(payload.flattenTun(FIXTURE, undefined), FIXTURE);
+  assert.strictEqual(payload.flattenTun(FIXTURE, {}), FIXTURE);
+  assert.strictEqual(payload.flattenTun(FIXTURE, [1, 2]), FIXTURE);
+});
+
+test('flattenTun：TUN 关闭时也做平 enable:false（阻止误重开）', () => {
+  const text = payload.flattenTun(FIXTURE, { enable: false });
+  assert.ok(text.includes('  enable: false'));
+  // 其它白名单键为空时不会留下旧值
+  assert.ok(!text.includes('stack:'));
+  assert.ok(!text.includes('auto-route:'));
+});
+
+test('compose 接受第 4 参 runtimeTun，第 4 参缺省时行为不变', () => {
+  const withTun = payload.compose(FIXTURE, listenersFor([10801]), groupsFor([[10801, '台湾 01']]), RUNTIME_TUN);
+  assert.ok(withTun.includes('  device: "Mihomo"'));
+  assert.ok(withTun.includes('- name: "PortPilot-10801"'));
+  assert.ok(withTun.includes('  include-all-proxies: true'));
+
+  const without = payload.compose(FIXTURE, listenersFor([10801]), groupsFor([[10801, '台湾 01']]));
+  assert.ok(without.includes('stack: gvisor'));
+  assert.strictEqual(without, payload.compose(FIXTURE, listenersFor([10801]), groupsFor([[10801, '台湾 01']])));
+});
+
+test('compose + runtimeTun 是幂等的（真实循环：应用 → Verge 重新生成 → 再应用）', () => {
+  const first = payload.compose(FIXTURE, listenersFor([10801]), groupsFor([[10801, '台湾 01']]), RUNTIME_TUN);
+  const second = payload.compose(first, listenersFor([10801]), groupsFor([[10801, '台湾 01']]), RUNTIME_TUN);
+  assert.strictEqual(first, second);
+});

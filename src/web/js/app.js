@@ -107,7 +107,9 @@
     }
     dot.className = 'dot ok';
     text.textContent = 'Clash Verge 已就绪';
-    detail.textContent = (v.core.version || '') + (v.core.mixedPort ? ' · 混合端口 ' + v.core.mixedPort : '');
+    detail.textContent = (v.core.version || '') +
+      (v.core.mixedPort ? ' · 混合端口 ' + v.core.mixedPort : '') +
+      (v.core.tunEnabled ? ' · TUN 已开启' : '');
   }
 
   function datasetOf(el) {

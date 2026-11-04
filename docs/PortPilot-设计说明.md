@@ -15,6 +15,7 @@
 | 应用监听器 | 没有 `/listeners` 接口。只有 `PUT /configs`：`{"payload":"完整配置文本"}` 或 `{"path":"内核 home 内的绝对路径"}`。`updateListeners` 每次都 `PatchInboundListeners(dropOld=true)`，所以删掉条目＝真正停止监听。解析失败返回 400 且不改动运行状态 |
 | 选节点 | `PUT /proxies/{组名}` `{"name":"节点名"}` → `selector.Set()` + `cachefile.Cache().SetSelected()`；`profile.store-selected: true` 时每次应用配置都会 `patchSelectGroup` 还原。**不需要写文件，也不需要重载** |
 | 每端口汇总 | `GET /connections` 的连接带 `metadata.inboundName` / `inboundPort` / 上传下载 |
+| TUN 与整份应用 | `executor.ApplyConfig` 里 `updateTun` **不受 `force` 控制**，每次 `PUT /configs` 都会执行；`ReCreateTun` 只有文本解析出的 tun 与内核运行值 `Equal()` 才短路，否则拆掉重建 TUN 设备（路由重建、全局断网抖动），重建失败时内核把 `tun.enable` **静默置回 false**。对策：下发前用 `GET /configs` 的运行值做平 payload 的 `tun:` 段（`payload.flattenTun`），应用后再自检一次，被关掉就用 `PATCH /configs {"tun":...}` 补回去（PATCH 的 tun 合并到运行值上） |
 | Verge 生成链 | `process_seq_items`（rules/proxies/**groups** 模板）→ 默认配置合并 → 内置脚本 → `use_tun` → DNS → **全局 Merge.yaml** → **订阅自身的 merge/script** → 控制面强制 → `cleanup_proxy_groups` → `use_sort` |
 | 可安全写入的位置 | ① 订阅的 merge 模板（`option.merge`）：`use_merge` 对不存在的键直接插入 → 放 `listeners`；② 订阅的 groups 模板（`option.groups`）：`SeqMap{prepend,append,delete}`，**三个键必须同时存在** → 放每端口的组 |
 | 不会被误删 | `listeners` 不在控制面键列表里，`use_sort` 也不丢键；`cleanup_proxy_groups` 只裁剪组内 `proxies` 里不存在的名字，因此节点失效时组会自动回退到 include-all 的候选列表 |
@@ -42,12 +43,14 @@
    - 剔除上一轮注入的 `# >>> PortPilot` / `# <<< PortPilot` 区块（保证幂等）；
    - 注释标记会被 Clash Verge 的 YAML 往返丢掉，所以除了标记，还要**按名字**（PortPilot-<端口号>）清掉配置里已经存在的监听器与分组，否则重新打开/关闭端口时内核会报 duplicate group name；
    - 把每端口的 `select` 组插进 `proxy-groups` 之后；
-   - 把已打开端口的 `listeners` 条目插进 `listeners` 键（没有就新建）。
+   - 把已打开端口的 `listeners` 条目插进 `listeners` 键（没有就新建）；
+   - **把 `tun:` 段用内核运行值做平**（应用前那一步 `GET /configs` 返回的 `tun` 传给 `compose` 的第 4 参），保证内核 `ReCreateTun` 短路，不拆建 TUN 设备；`GET` 失败或没有 tun 字段时跳过，行为退回原样。
 3. `PUT /configs` 应用。**这一步是唯一的风险点**：失败（400）时内核状态没有变化，直接报错返回，不写文件。
-4. 成功后才落盘：把同样的内容写进订阅的 merge 模板与 groups 模板（先复制到 `backup/<时间戳>/`，再原子写，最后回读校验）。
-5. 若第 4 步失败：还原两份模板 + 把内核退回上一次成功的配置文本，报错并记录。
-6. 用 TCP 连接探测每个已打开端口，把真实结果作为「状态」；不一致就显示「打开失败」。
-7. 保存 `state.json`，写运行记录。
+4. 成功后才落盘：把同样的内容写进订阅的 merge 模板与 groups 模板（先复制到 `backup/<时间戳>/`，再原子写，最后回读校验）。**注意：tun 段只进 PUT payload，绝不写进模板**——模板会被 Verge 合并进它的生成链，写 tun 会跟 Verge 界面的 TUN 开关互相覆盖。
+5. 应用后 TUN 自检（`core.verifyTun`）：再取一次 `GET /configs`，若 `tun.enable` 从 true 掉成 false（内核重建 TUN 失败的静默行为），用 `PATCH /configs` 把应用前的运行值补回去并复查；结果写进运行记录，恢复失败不回滚端口操作、只置 `lastError` 提示。
+6. 若第 4 步失败：还原两份模板 + 把内核退回上一次成功的配置文本（回滚 payload 同样先做平 tun 段，避免恢复时再拆建一次 TUN），报错并记录。
+7. 用 TCP 连接探测每个已打开端口，把真实结果作为「状态」；不一致就显示「打开失败」。
+8. 保存 `state.json`，写运行记录。
 
 选节点（`core.selectNode()`）：`PUT /proxies/PortPilot-<端口>` → 回读 `now` 校验 → 更新 `state.json` → 同步写一次模板（只为把默认值也改成新节点，不动内核）。不重载，不打断已有连接。例外：新建端口还没应用过（组不在内核，`PUT` 回 404）时，自动走一次 `applyAll()` 把监听器与分组建出来，选中节点作为组默认值一起生效。
 
@@ -82,6 +85,7 @@
 | 缺 WebView2 运行时 | 启动前 `preflight` 先查（目录 + 注册表兜底），缺失时弹中文说明并给出下载页，而不是让 Wails 内部报错退出 |
 | WebView2 数据目录不可写 | 按 `%APPDATA%` → `%LOCALAPPDATA%` → `%TEMP%` → exe 同目录依次回退，日志记录实际用的那一个（`preflight.go`） |
 | 同名文件挡在数据目录处 | 先改名为 `<目录>.blocked` 再建目录，不让启动卡死 |
+| TUN 开启时开关端口闪断 / TUN 被静默关闭 | payload 的 `tun:` 段按内核运行值做平，让 `ReCreateTun` 短路；应用后自检，被关掉就 `PATCH /configs` 补回并记日志 |
 | 双击被系统当不可信程序 | 构建后清除下载标记（`Unblock-File` + 删 `Zone.Identifier`），并把目录完整性标签校正为 Medium（`build.ps1`） |
 
 ## 7. 源码结构
@@ -114,6 +118,6 @@ fixtures/              合成样例，用于单元测试
 
 ## 8. 验收
 
-`node tests/e2e-pipeline.js` 16 项全通过：管道发现、内核版本、节点列表、端口空闲、配置组装、应用到内核、端口开始监听、分组生效、默认选中指定节点、切换节点即时生效、HTTP 代理返回 204、CONNECT 隧道可用、连接被标记到该端口、关闭后停止监听、还原原配置。
+`node tests/e2e-pipeline.js` 16 项全通过：管道发现、内核版本、节点列表、端口空闲、配置组装、应用到内核、端口开始监听、分组生效、默认选中指定节点、切换节点即时生效、HTTP 代理返回 204、CONNECT 隧道可用、连接被标记到该端口、关闭后停止监听、还原原配置。TUN 开启时另有一项「两次整份应用后 `tun.enable` 与基线一致」的核对（TUN 未开启时仅记录运行值）。
 
 界面验收：新建 10801 → 打开开关（TCP 可连、模板写入并留下备份）→ 搜索并选节点（内核回读一致、状态显示已保存）→ 通过 10801 代理返回 204 → 关窗后端口继续可用 → 重启 Clash Verge 后重新生成的 `clash-verge.yaml` 里带着 `listeners` 与 `PortPilot-10801` 组，节点选择保持不变。

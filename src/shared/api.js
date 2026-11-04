@@ -131,6 +131,14 @@
           if (res.status < 200 || res.status >= 300) throw makeError(messageFrom(res), res);
           return true;
         });
+      },
+
+      /* 只补 TUN 配置：PATCH /configs {"tun": {...}}（合并到内核运行值上，不动其它配置） */
+      patchTun: function (tun, timeout) {
+        return raw('PATCH', '/configs', { tun: tun }, timeout || 15000).then(function (res) {
+          if (res.status < 200 || res.status >= 300) throw makeError(messageFrom(res), res);
+          return true;
+        });
       }
     };
   }

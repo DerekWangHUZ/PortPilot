@@ -38,7 +38,7 @@
         '<div class="stat"><span>端口</span><b>' + ports.length + '</b><small>已打开 ' + onCount + ' 个</small></div>' +
         '<div class="stat"><span>节点</span><b>' + v.nodes.length + '</b><small>可选节点</small></div>' +
         '<div class="stat"><span>Clash Verge</span><b>' + (v.core.ok ? '已就绪' : '未就绪') + '</b><small>' +
-        esc(v.core.version || '—') + '</small></div>' +
+        esc(v.core.version || '—') + (v.core.tunEnabled ? ' · TUN 已开启' : '') + '</small></div>' +
         '</div>';
 
       var body;

@@ -262,6 +262,7 @@
           pipe: core.core_.pipe,
           error: core.core_.error,
           mixedPort: core.core_.configs ? core.core_.configs['mixed-port'] : null,
+          tunEnabled: !!(core.core_.configs && core.core_.configs.tun && core.core_.configs.tun.enable),
           ports: core.corePorts()
         },
         vergeRunning: core.vergeRunning,
@@ -296,6 +297,7 @@
       var payloadText;
       var previousPayload = core.lastGoodPayload;
       var backupInfo = null;
+      var beforeTun = null;
       return Promise.resolve().then(function () {
         if (!core.core_.ok) throw new Error('Clash Verge 未运行，请先启动它');
         listenersToWrite = model.buildListeners(core.state.ports);
@@ -307,10 +309,12 @@
 
         return core.api.configs().then(function (cfg) {
           core.core_.configs = cfg;
+          beforeTun = cfg && cfg.tun ? cfg.tun : null;
           return io.readText(core.paths.clashConfigPath);
         });
       }).then(function (configText) {
-        payloadText = payloadMod.compose(configText, listenersToWrite, groups);
+        var runtimeTun = core.core_.configs ? core.core_.configs.tun : null;
+        payloadText = payloadMod.compose(configText, listenersToWrite, groups, runtimeTun);
         // 失败时至少要能退回「没注入任何内容」的原始配置
         if (!previousPayload) previousPayload = configText;
         return core.api.applyPayload(payloadText);
@@ -325,6 +329,11 @@
           listeners: listenersToWrite,
           groups: groups
         });
+      }).then(function (info) {
+        backupInfo = info;
+        core.state.lastBackup = { stamp: util.nowStamp(), backups: info.backups };
+        core.lastGoodPayload = payloadText;
+        return core.verifyTun(beforeTun).then(function () { return info; });
       }).then(function (info) {
         backupInfo = info;
         core.state.lastBackup = { stamp: util.nowStamp(), backups: info.backups };
@@ -355,7 +364,10 @@
           chain = chain.then(function () { return vergetpl.restore(io, backupInfo.backups); });
         }
         if (previousPayload) {
-          chain = chain.then(function () { return core.api.applyPayload(previousPayload); }, function () { });
+          chain = chain.then(function () {
+            // 回滚同样要把 tun 段做平，避免恢复配置时再拆建一次 TUN
+            return core.api.applyPayload(payloadMod.flattenTun(previousPayload, beforeTun));
+          }, function () { });
         }
         return chain.then(function () {
           core.busy = false;
@@ -366,6 +378,36 @@
           throw err;
         });
       });
+    };
+
+    /* 应用后的 TUN 自检：内核在整份应用重建 TUN 失败时会把 enable 静默置回 false。
+       发现被关掉就用 PATCH /configs 把应用前的运行值补回去（PATCH 的 tun 合并到运行值上）。 */
+    core.verifyTun = function (beforeTun) {
+      if (!beforeTun || beforeTun.enable === false) return Promise.resolve(); // TUN 本来就没开 / 内核没回 tun 字段
+      return core.api.configs().then(function (cfg) {
+        var nowTun = cfg && cfg.tun ? cfg.tun : null;
+        if (!nowTun || nowTun.enable !== false) return null;
+        return core.api.patchTun(beforeTun).then(function () {
+          return core.api.configs().then(function (again) {
+            var ok = !!(again && again.tun && again.tun.enable);
+            core.appendLog({
+              action: 'TUN 检查',
+              ok: ok,
+              detail: ok ? 'TUN 被应用操作关闭，已自动恢复' : 'TUN 被关闭且恢复失败，请在 Clash Verge 里手动开启'
+            });
+            if (!ok) core.lastError = 'TUN 模式被意外关闭且自动恢复失败，请在 Clash Verge 里手动开启';
+            return ok;
+          });
+        }, function (err) {
+          core.appendLog({
+            action: 'TUN 检查',
+            ok: false,
+            detail: 'TUN 被应用操作关闭，恢复失败：' + (err && err.message ? err.message : String(err))
+          });
+          core.lastError = 'TUN 模式被意外关闭且自动恢复失败，请在 Clash Verge 里手动开启';
+          return false;
+        });
+      }, function () { return null; }); // 应用成功但回读失败：不影响主流程
     };
 
     /* 把每个已打开端口的节点选择推回内核（保证选择是我们要的那个） */

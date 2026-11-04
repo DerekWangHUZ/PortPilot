@@ -48,7 +48,7 @@
         '<div class="card"><h3>关于</h3><dl class="kv">' +
         '<dt>版本</dt><dd>PortPilot ' + esc(v.app ? v.app.version : '—') + '</dd>' +
         '<dt>Clash Verge</dt><dd>' + (v.core.ok ? '已就绪，内核 ' + esc(v.core.version || '—') : '未就绪（' + esc(v.core.error || '未运行') + '）') + '</dd>' +
-        '<dt>内核端口</dt><dd>' + (v.core.mixedPort ? ('混合端口 ' + v.core.mixedPort) : '—') + '</dd>' +
+        '<dt>内核端口</dt><dd>' + (v.core.mixedPort ? ('混合端口 ' + v.core.mixedPort) : '—') + (v.core.tunEnabled ? '，TUN 已开启' : '') + '</dd>' +
         '<dt>控制通道</dt><dd class="mono">' + esc(v.core.pipe || '—') + '</dd>' +
         '<dt>数据目录</dt><dd class="mono">' + esc(v.paths ? v.paths.appDataDir : '—') + '</dd>' +
         '<dt>当前订阅</dt><dd class="mono">' + esc(v.paths ? v.paths.profilesYamlPath : '—') + '</dd>' +

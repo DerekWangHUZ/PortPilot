@@ -136,6 +136,7 @@ function proxyGet(port, targetUrl) {
   let pipe = null;
   let originalText = null;
   let applied = false;
+  let restoreSelection = null;
 
   try {
     originalText = fs.readFileSync(CONFIG, 'utf8');
@@ -155,6 +156,11 @@ function proxyGet(port, targetUrl) {
     check('读到节点列表', nodes.length > 0, nodes.length + ' 个节点');
     const chosen = nodes[0];
 
+    // TUN 基线：应用前记录内核运行值，应用后核对 enable 没有掉（TUN 做平修复的真机验证）
+    const initialConfigs = JSON.parse((await http('GET', '/configs')).res.body);
+    const tunBefore = initialConfigs.tun && typeof initialConfigs.tun === 'object' ? initialConfigs.tun : null;
+    check('读取 TUN 运行值', true, tunBefore ? ('enable=' + tunBefore.enable + (tunBefore.stack ? '，stack=' + tunBefore.stack : '')) : '内核未返回 tun 字段（旧内核，跳过 TUN 断言）');
+
     const alreadyListening = await tcpProbe(PORT);
     check('目标端口状态已知', true, alreadyListening
       ? '127.0.0.1:' + PORT + ' 已在监听（当作 PortPilot 已经打开）'
@@ -163,7 +169,7 @@ function proxyGet(port, targetUrl) {
     const state = { ports: [{ port: PORT, enabled: true, node: chosen }] };
     const listeners = model.buildListeners(state.ports);
     const groups = model.buildGroups(state.ports);
-    const composed = payloadMod.compose(originalText, listeners, groups);
+    const composed = payloadMod.compose(originalText, listeners, groups, tunBefore);
     check('组装配置文本', composed.includes('listeners:') && composed.includes('PortPilot-' + PORT),
       composed.length + ' 字节');
 
@@ -179,7 +185,12 @@ function proxyGet(port, targetUrl) {
     const groupState = JSON.parse((await http('GET', '/proxies/' + encodeURIComponent('PortPilot-' + PORT))).res.body);
     check('端口对应的分组已生效', (groupState.all || []).length > 0,
       '成员 ' + (groupState.all || []).length + ' 个，当前 ' + groupState.now);
-    check('默认选中了我们指定的节点', groupState.now === chosen, groupState.now + ' / ' + chosen);
+
+    // cachefile 里保存过的选择（store-selected）会覆盖组默认值，先显式选中目标节点再断言
+    const initialNow = groupState.now || null;
+    await http('PUT', '/proxies/' + encodeURIComponent('PortPilot-' + PORT), JSON.stringify({ name: chosen }));
+    const selected = JSON.parse((await http('GET', '/proxies/' + encodeURIComponent('PortPilot-' + PORT))).res.body);
+    check('选中指定节点生效', selected.now === chosen, selected.now + ' / ' + chosen);
 
     // 换一个节点（走 PUT /proxies，不重载配置）
     if (nodes.length > 1) {
@@ -188,6 +199,7 @@ function proxyGet(port, targetUrl) {
       const after = JSON.parse((await http('GET', '/proxies/' + encodeURIComponent('PortPilot-' + PORT))).res.body);
       check('切换节点即时生效', sel.res.status < 300 && after.now === other, after.now);
       await http('PUT', '/proxies/' + encodeURIComponent('PortPilot-' + PORT), JSON.stringify({ name: chosen }));
+      restoreSelection = chosen;
     }
 
     const proxied = await proxyGet(PORT, 'http://cp.cloudflare.com/generate_204');
@@ -220,14 +232,30 @@ function proxyGet(port, targetUrl) {
     tunnel.destroy();
 
     // 关掉：把 listeners 去掉，再应用一次
-    const off = payloadMod.compose(originalText, [], []);
+    const off = payloadMod.compose(originalText, [], [], tunBefore);
     const closeApply = await http('PUT', '/configs', JSON.stringify({ payload: off }), 30000);
     await sleep(400);
     const stillListening = await tcpProbe(PORT);
     check('关闭后端口停止监听', closeApply.res.status < 300 && !stillListening, 'HTTP ' + closeApply.res.status);
+
+    // TUN 收尾核对：两次整份应用之后 enable 必须与基线一致（掉了说明被静默关闭）
+    if (tunBefore) {
+      const finalConfigs = JSON.parse((await http('GET', '/configs')).res.body);
+      const tunAfter = finalConfigs.tun || {};
+      check('TUN 状态在两次应用后保持不变', !!tunAfter.enable === !!tunBefore.enable,
+        '应用前 enable=' + tunBefore.enable + '，应用后 enable=' + tunAfter.enable);
+    }
   } catch (err) {
     check('验收过程', false, err && err.message ? err.message : String(err));
   } finally {
+    try {
+      // 把端口上的选择恢复成验收前的样子（cachefile 会在 PUT /proxies 时保存）
+      if (restoreSelection) {
+        await http('PUT', '/proxies/' + encodeURIComponent('PortPilot-' + PORT), JSON.stringify({ name: restoreSelection }));
+      } else if (typeof initialNow === 'string') {
+        await http('PUT', '/proxies/' + encodeURIComponent('PortPilot-' + PORT), JSON.stringify({ name: initialNow }));
+      }
+    } catch { }
     try {
       if (applied && originalText) {
         const restore = await http('PUT', '/configs', JSON.stringify({ payload: originalText }), 30000);

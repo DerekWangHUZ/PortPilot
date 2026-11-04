@@ -76,13 +76,63 @@
     yamledit.insertIntoSeqBlock(block, model.renderGroupItems(groups), TAG);
   }
 
+  /* GET /configs 返回的 tun 对象里允许写回配置文本的键（与 mihomo LC.Tun 的 yaml/json 键一致） */
+  var TUN_KEYS = [
+    'enable', 'device', 'stack', 'dns-hijack', 'auto-route', 'auto-detect-interface',
+    'auto-redirect', 'mtu', 'gso', 'gso-max-size', 'strict-route',
+    'route-address', 'route-exclude-address', 'endpoint-independent-nat',
+    'udp-timeout', 'icmp-timeout'
+  ];
+
+  function yamlScalar(v) {
+    if (typeof v === 'boolean' || typeof v === 'number') return String(v);
+    return util.quote(v);
+  }
+
+  function renderTunLines(tun) {
+    var lines = [];
+    TUN_KEYS.forEach(function (key) {
+      var v = tun[key];
+      if (v === null || v === undefined) return;
+      if (Object.prototype.toString.call(v) === '[object Array]') {
+        if (!v.length) { lines.push('  ' + key + ': []'); return; }
+        lines.push('  ' + key + ':');
+        v.forEach(function (item) { lines.push('  - ' + yamlScalar(item)); });
+        return;
+      }
+      lines.push('  ' + key + ': ' + yamlScalar(v));
+    });
+    return lines;
+  }
+
+  /* 把内核运行时的 tun 值整体做平进配置文本。
+     mihomo 每次 PUT /configs 都会执行 ReCreateTun：只有文本解析出的 tun 与运行值完全相等才短路，
+     否则拆掉重建 TUN 设备（全局断网抖动，失败时 TUN 被静默关闭）。
+     用运行值覆写 tun 段可让 Equal() 恒成立，TUN 完全不动。 */
+  function flattenTun(configText, runtimeTun) {
+    if (!runtimeTun || typeof runtimeTun !== 'object' ||
+        Object.prototype.toString.call(runtimeTun) === '[object Array]') return configText;
+    var lines = renderTunLines(runtimeTun);
+    if (!lines.length) return configText;
+    var doc = yamledit.splitTopLevel(configText);
+    var block = yamledit.findBlock(doc, 'tun');
+    if (!block) {
+      block = { key: 'tun', lines: ['tun:'] };
+      doc.blocks.push(block);
+    }
+    block.lines[0] = 'tun:'; // 内联 flow 风格（tun: {...}）也整体重写为块风格
+    yamledit.setBlockBody(block, lines);
+    return yamledit.joinTopLevel(doc);
+  }
+
   /* 生成一份完整配置文本（用于 PUT /configs 的 payload） */
-  function compose(configText, listeners, groups) {
+  function compose(configText, listeners, groups, runtimeTun) {
     var doc = yamledit.splitTopLevel(configText);
     stripOurLines(doc);
     upsertGroups(doc, groups);
     upsertListeners(doc, listeners);
-    return yamledit.joinTopLevel(doc);
+    var text = yamledit.joinTopLevel(doc);
+    return flattenTun(text, runtimeTun);
   }
 
   /* 只更新 listeners（用在后端写入 Verge 的 merge 模板） */
@@ -161,6 +211,8 @@
     compose: compose,
     composeListenersOnly: composeListenersOnly,
     composeGroupsTemplate: composeGroupsTemplate,
+    flattenTun: flattenTun,
+    renderTunLines: renderTunLines,
     removeOurEntries: removeOurEntries,
     ensureSeqKeys: ensureSeqKeys,
     hasOurMarkers: hasOurMarkers

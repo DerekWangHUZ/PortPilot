@@ -32,10 +32,14 @@ function makeCore(opts) {
   opts = opts || {};
   const files = new Map();          // 内存文件系统：path -> text
   const httpLog = [];               // 内核收到的全部 pipe.http 请求
+  const patchCalls = [];            // 内核收到的 PATCH /configs
   const groupState = {              // 内核里 PortPilot-10801 的状态（GET 回读）
     name: 'PortPilot-10801', type: 'Selector',
     now: opts.groupNow || null, all: ['节点A', '节点B']
   };
+  // 内核运行时的 TUN 配置（GET /configs 的 tun 字段）；opts.tunFlipToOff 模拟「应用后 TUN 被静默关闭」
+  let kernelTun = opts.kernelTun || { enable: true, stack: 'mixed', 'auto-route': true };
+  let configsReads = 0;
 
   function routeHttp(args) {
     const p = args.path;
@@ -47,8 +51,20 @@ function makeCore(opts) {
       }
       return { status: opts.putGroupStatus, body: opts.putGroupBody || '' };
     }
-    if (args.method === 'PUT' && p === '/configs') return { status: 204, body: '' };
-    if (args.method === 'GET' && p === '/configs') return { status: 200, body: '{"mixed-port":7890}' };
+    if (args.method === 'PUT' && p === '/configs') {
+      if (opts.tunFlipToOff) kernelTun = Object.assign({}, kernelTun, { enable: false });
+      return { status: 204, body: '' };
+    }
+    if (args.method === 'PATCH' && p === '/configs') {
+      const parsed = typeof args.body === 'string' ? JSON.parse(args.body) : (args.body || {});
+      if (parsed.tun) kernelTun = Object.assign({}, kernelTun, parsed.tun);
+      patchCalls.push({ body: parsed });
+      return { status: 204, body: '' };
+    }
+    if (args.method === 'GET' && p === '/configs') {
+      configsReads++;
+      return { status: 200, body: JSON.stringify({ 'mixed-port': 7890, tun: kernelTun }) };
+    }
     if (args.method === 'GET' && p === '/proxies') {
       return { status: 200, body: JSON.stringify({ proxies: opts.kernelProxies || {} }) };
     }
@@ -112,7 +128,9 @@ function makeCore(opts) {
   files.set('profiles/GroupTemplate.yaml', 'prepend: []\nappend: []\ndelete: []\n');
   files.set('profiles/MergeAA.yaml', 'listeners: []\n');
 
-  return { core: core, files: files, httpLog: httpLog };
+  return { core: core, files: files, httpLog: httpLog, patchCalls: patchCalls,
+           getKernelTun: function () { return kernelTun; },
+           configsReads: function () { return configsReads; } };
 }
 
 function appliedConfigsCalls(httpLog) {
@@ -187,4 +205,70 @@ test('场景C：内核返回 400 时保持原报错并回退选择', async funct
 
   const logText = t.files.get('run-log.jsonl');
   assert.ok(/选择节点.*"ok":false/.test(logText), '运行记录应有失败日志');
+});
+
+/* ---------- TUN 兼容（对应修复：整份应用前把 tun 段做平 + 应用后自检恢复） ---------- */
+
+test('场景D：applyAll 下发的 payload 里 tun 段与内核运行值一致（TUN 不被重建）', async function () {
+  const t = makeCore({
+    putGroupStatus: 404,
+    kernelTun: { enable: true, device: 'Mihomo', stack: 'mixed', 'auto-route': true, 'auto-detect-interface': true, mtu: 9000 }
+  });
+
+  await t.core.selectNode(10801, '节点A');
+
+  const puts = appliedConfigsCalls(t.httpLog);
+  assert.strictEqual(puts.length, 1, '应该恰好有一次全量应用');
+  const body0 = puts[0].body;
+  const payloadText = typeof body0 === 'string' ? JSON.parse(body0).payload : body0.payload;
+
+  // payload 的 tun 段按运行值做平：键与值全部对上 GET /configs 返回的内容
+  assert.ok(/^tun:$/m.test(payloadText), 'payload 应包含 tun 段');
+  assert.ok(payloadText.includes('  enable: true'));
+  assert.ok(payloadText.includes('  device: "Mihomo"'));
+  assert.ok(payloadText.includes('  stack: "mixed"'));
+  assert.ok(payloadText.includes('  auto-route: true'));
+  assert.ok(payloadText.includes('  auto-detect-interface: true'));
+  assert.ok(payloadText.includes('  mtu: 9000'));
+});
+
+test('场景E：TUN 被应用操作静默关闭时自动 PATCH 恢复并记日志', async function () {
+  const t = makeCore({
+    putGroupStatus: 404,
+    kernelTun: { enable: true, stack: 'mixed', 'auto-route': true },
+    tunFlipToOff: true // 模拟内核重建 TUN 失败后把 enable 置回 false
+  });
+
+  await t.core.selectNode(10801, '节点A');
+
+  /* 内核收到了 PATCH /configs，body 带应用前的运行值（enable 回 true） */
+  assert.strictEqual(t.patchCalls.length, 1, '应该有一次 PATCH /configs 恢复 TUN');
+  const patchTun = t.patchCalls[0].body.tun;
+  assert.ok(patchTun, 'PATCH body 应包含 tun 对象');
+  assert.strictEqual(patchTun.enable, true);
+  assert.strictEqual(patchTun.stack, 'mixed');
+
+  /* 恢复后内核的 tun.enable 回到 true */
+  assert.strictEqual(t.getKernelTun().enable, true);
+
+  /* 运行记录里有 TUN 检查条目 */
+  const logText = t.files.get('run-log.jsonl');
+  assert.ok(/TUN 检查.*"ok":true/.test(logText), '运行记录应有成功的 TUN 检查日志');
+});
+
+test('场景F：TUN 本来就没开时不触发 PATCH', async function () {
+  const t = makeCore({
+    putGroupStatus: 404,
+    kernelTun: { enable: false },
+    tunFlipToOff: true // 关着的 TUN「翻」成关着，无所谓
+  });
+
+  await t.core.selectNode(10801, '节点A');
+
+  assert.strictEqual(t.patchCalls.length, 0, 'TUN 未开启时不应发 PATCH');
+  const puts = appliedConfigsCalls(t.httpLog);
+  assert.strictEqual(puts.length, 1, '仍应有全量应用');
+  const body0 = puts[0].body;
+  const payloadText = typeof body0 === 'string' ? JSON.parse(body0).payload : body0.payload;
+  assert.ok(payloadText.includes('  enable: false'), 'payload 的 tun 段按运行值做平');
 });
