@@ -37,11 +37,27 @@ test('buildListeners 只包含已打开的端口', () => {
 });
 
 test('buildGroups 把已选节点放在第一位作为默认值', () => {
-  const groups = model.buildGroups([{ port: 10801, enabled: true, node: '台湾 01' }]);
+  const groups = model.buildGroups([{ port: 10801, enabled: true, node: '台湾 01' }], ['台湾 01', '香港 01']);
   assert.strictEqual(groups.length, 1);
   assert.strictEqual(groups[0].name, 'PortPilot-10801');
   assert.strictEqual(groups[0].includeAllProxies, true);
   assert.strictEqual(groups[0].selected, '台湾 01');
+});
+
+test('buildGroups 丢弃不在节点列表里的默认值（内核校验组成员，失效名字会让整份配置 400）', () => {
+  // 关着的端口里存的失效节点同样毒化配置：buildGroups 对全部端口建组
+  const groups = model.buildGroups([
+    { port: 10801, enabled: true, node: '台湾 01' },
+    { port: 10802, enabled: false, node: 'kr8日本-旧名字(AnyTLS)' }
+  ], ['台湾 01', '香港 01']);
+  assert.strictEqual(groups[0].selected, '台湾 01', '有效节点保留');
+  assert.strictEqual(groups[1].selected, null, '失效节点被丢弃，组靠 include-all-proxies 仍可用');
+  assert.strictEqual(groups[1].includeAllProxies, true);
+});
+
+test('buildGroups 不传节点列表时保持旧行为（兼容）', () => {
+  const groups = model.buildGroups([{ port: 10801, enabled: true, node: '任何名字' }]);
+  assert.strictEqual(groups[0].selected, '任何名字');
 });
 
 test('validate 报出重复端口与内核占用端口', () => {

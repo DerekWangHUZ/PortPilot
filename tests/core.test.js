@@ -122,6 +122,9 @@ function makeCore(opts) {
   ];
   core.proxies = { '节点A': { name: '节点A', type: 'ss' }, '节点B': { name: '节点B', type: 'ss' } };
   core.state = stateMod.normalize({ ports: [{ port: 10801, enabled: false, node: null }] });
+  if (opts.extraPorts) {
+    core.state = stateMod.normalize({ ports: [{ port: 10801, enabled: false, node: null }].concat(opts.extraPorts) });
+  }
 
   files.set('clash-verge.yaml', 'mixed-port: 7890\nmode: rule\n');
   files.set('profiles.yaml', PROFILES);
@@ -271,4 +274,34 @@ test('场景F：TUN 本来就没开时不触发 PATCH', async function () {
   const body0 = puts[0].body;
   const payloadText = typeof body0 === 'string' ? JSON.parse(body0).payload : body0.payload;
   assert.ok(payloadText.includes('  enable: false'), 'payload 的 tun 段按运行值做平');
+});
+
+/* ---------- 失效节点不毒化整份配置（对应真机 bug：订阅更新后节点改名，
+   state.json 里的旧名被写进组的 proxies，内核校验组成员时整份 400 拒绝，
+   连节点有效的端口一起失败，界面还提示去查端口占用） ---------- */
+
+test('场景G：关着的端口存着失效节点，完整应用仍然成功且不把旧名写进配置', async function () {
+  const t = makeCore({
+    putGroupStatus: 404,
+    extraPorts: [
+      { port: 10802, enabled: false, node: 'kr8日本-旧名字(AnyTLS)' },
+      { port: 10803, enabled: false, node: '节点A' } // 有效节点不受影响
+    ]
+  });
+
+  await t.core.selectNode(10801, '节点A');
+
+  const puts = appliedConfigsCalls(t.httpLog);
+  assert.strictEqual(puts.length, 1, '应该恰好有一次全量应用');
+  const body0 = puts[0].body;
+  const payloadText = typeof body0 === 'string' ? JSON.parse(body0).payload : body0.payload;
+
+  /* 失效的旧名字绝不出现；有效节点照常作为默认值 */
+  assert.ok(!payloadText.includes('kr8日本-旧名字'), '失效节点不能写进配置');
+  assert.ok(payloadText.includes('proxies: ["节点A"]'), '有效节点保留为组默认值');
+
+  /* 状态不受污染，运行记录有失效提醒 */
+  const logText = t.files.get('run-log.jsonl');
+  assert.ok(/节点失效提醒.*10802/.test(logText), '运行记录应提醒 10802 的节点已失效');
+  assert.ok(!/节点失效提醒.*10803/.test(logText), '有效节点不应被提醒');
 });

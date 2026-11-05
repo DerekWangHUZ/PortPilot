@@ -29,8 +29,12 @@
           esc(v.core.error || '请先启动 Clash Verge') + '</div>';
       }
       if (failed.length) {
-        head += '<div class="warn-box">有 ' + failed.length + ' 个端口没有成功打开：' +
-          failed.map(function (p) { return p.port; }).join('、') + '。请检查端口号是否被占用。</div>';
+        var missing = failed.filter(function (p) { return p.nodeMissing; });
+        var blocked = failed.filter(function (p) { return !p.nodeMissing; });
+        head += '<div class="warn-box">有 ' + failed.length + ' 个端口没有成功打开。' +
+          (missing.length ? '其中 ' + missing.length + ' 个的节点已不在当前订阅里（订阅更新后改名或删除），到「节点」页重新选择即可；' : '') +
+          (blocked.length ? '其余 ' + blocked.length + ' 个：' + blocked.map(function (p) { return p.port; }).join('、') + ' 请检查端口号是否被占用。' : '') +
+          '</div>';
       }
 
       var cards =

@@ -8,6 +8,7 @@
   var MAX_ENTRIES = 800;
 
   function createLog(io, logPath) {
+    var pending = Promise.resolve(); // 串行化追加：并发 append 会互相覆盖（读改写竞争）
     function readAll() {
       return io.exists(logPath).then(function (yes) {
         if (!yes) return [];
@@ -28,19 +29,22 @@
       read: readAll,
       clear: function () { return io.writeTextAtomic(logPath, ''); },
       append: function (entry) {
-        return readAll().then(function (items) {
-          items.push({
-            time: new Date().toISOString(),
-            action: entry.action || '',
-            port: entry.port === undefined || entry.port === null ? null : entry.port,
-            node: entry.node || null,
-            ok: entry.ok !== false,
-            detail: entry.detail || ''
+        pending = pending.then(function () {
+          return readAll().then(function (items) {
+            items.push({
+              time: new Date().toISOString(),
+              action: entry.action || '',
+              port: entry.port === undefined || entry.port === null ? null : entry.port,
+              node: entry.node || null,
+              ok: entry.ok !== false,
+              detail: entry.detail || ''
+            });
+            if (items.length > MAX_ENTRIES) items = items.slice(items.length - MAX_ENTRIES);
+            var text = items.map(function (i) { return JSON.stringify(i); }).join('\n') + '\n';
+            return io.writeTextAtomic(logPath, text).then(function () { return true; });
           });
-          if (items.length > MAX_ENTRIES) items = items.slice(items.length - MAX_ENTRIES);
-          var text = items.map(function (i) { return JSON.stringify(i); }).join('\n') + '\n';
-          return io.writeTextAtomic(logPath, text).then(function () { return true; });
         });
+        return pending;
       }
     };
   }

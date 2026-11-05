@@ -27,14 +27,24 @@
     }).sort(function (a, b) { return a.port - b.port; });
   }
 
-  /* 全部端口 -> 每端口一个 select 组（成员含全部真实节点，并把已选节点放在第一位作为默认值） */
-  function buildGroups(ports) {
+  /* 全部端口 -> 每端口一个 select 组（成员含全部真实节点，并把已选节点放在第一位作为默认值）。
+     nodeNames 是当前订阅的节点名集合：订阅更新后节点可能改名，失效的名字绝不能写进组的
+     proxies（内核校验组成员时会让整份配置 400 失败，连别的端口一起遭殃）。
+     失效时丢弃默认值，组靠 include-all-proxies 仍然可用。 */
+  function buildGroups(ports, nodeNames) {
+    var valid = null;
+    if (nodeNames) {
+      valid = {};
+      (nodeNames).forEach(function (n) { valid[n] = true; });
+    }
     return (ports || []).map(function (p) {
+      var selected = p.node || null;
+      if (valid && selected && !valid[selected]) selected = null;
       return {
         name: groupName(p.port),
         type: 'select',
         includeAllProxies: true,
-        selected: p.node || null
+        selected: selected
       };
     }).sort(function (a, b) { return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0); });
   }

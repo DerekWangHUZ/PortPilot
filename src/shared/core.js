@@ -223,6 +223,7 @@
       var rt = core.runtime[p.port] || {};
       var status;
       var detail = '';
+      var nodeMissing = !!(p.enabled && p.node && !core.nodeExists(p.node));
       if (!p.enabled) {
         status = STATUS.OFF;
       } else if (rt.listening) {
@@ -232,7 +233,11 @@
         detail = 'Clash Verge 未运行';
       } else {
         status = STATUS.FAILED;
-        detail = rt.bindable === false ? '端口号被占用' : '端口没有监听';
+        if (nodeMissing) {
+          detail = '节点已失效，到「节点」页重新选择';
+        } else {
+          detail = rt.bindable === false ? '端口号被占用' : '端口没有监听';
+        }
       }
       return {
         port: p.port,
@@ -242,7 +247,7 @@
         status: status,
         statusText: STATUS_TEXT[status],
         statusDetail: detail,
-        nodeMissing: !!(p.enabled && p.node && !core.nodeExists(p.node)),
+        nodeMissing: nodeMissing,
         saved: !!(p.node && core.groupNow[p.port] === p.node),
         listening: !!rt.listening,
         bindable: rt.bindable !== false,
@@ -301,7 +306,8 @@
       return Promise.resolve().then(function () {
         if (!core.core_.ok) throw new Error('Clash Verge 未运行，请先启动它');
         listenersToWrite = model.buildListeners(core.state.ports);
-        groups = model.buildGroups(core.state.ports);
+        // 只把当前订阅里真实存在的节点写进组默认值，失效名字会让内核整份拒绝
+        groups = model.buildGroups(core.state.ports, core.nodes.map(function (n) { return n.name; }));
 
         var nodeNames = core.nodes.map(function (n) { return n.name; });
         var check = model.validate(core.state, { corePorts: core.corePorts(), nodeNames: nodeNames });
@@ -340,6 +346,17 @@
         core.lastGoodPayload = payloadText;
         return core.pushSelections();
       }).then(function () {
+        // 把「节点已失效」的端口标记出来（无论开关，存着失效节点就要提示重新选择）
+        core.state.ports.forEach(function (p) {
+          if (p.node && !core.nodeExists(p.node)) {
+            core.appendLog({
+              action: '节点失效提醒',
+              port: p.port,
+              ok: false,
+              detail: '节点「' + p.node + '」不在当前订阅里（订阅更新后改名或删除），到「节点」页重新选择'
+            });
+          }
+        });
         return core.probePorts();
       }).then(function () {
         return core.save();
@@ -507,18 +524,20 @@
           backupDir: core.paths.backupDir,
           stamp: util.nowStamp(),
           listeners: model.buildListeners(core.state.ports),
-          groups: model.buildGroups(core.state.ports)
+          groups: model.buildGroups(core.state.ports, core.nodes.map(function (n) { return n.name; }))
         });
       }).then(function () {
-        core.appendLog({ action: '选择节点', port: port, node: node, ok: true, detail: '' });
+        return core.appendLog({ action: '选择节点', port: port, node: node, ok: true, detail: '' });
+      }).then(function () {
         emit('state', core.view());
         return true;
       }, function (err) {
         // 选择失败时把状态退回去
         target.node = null;
-        core.appendLog({ action: '选择节点', port: port, node: node, ok: false, detail: err.message });
-        emit('state', core.view());
-        throw err;
+        return core.appendLog({ action: '选择节点', port: port, node: node, ok: false, detail: err.message }).then(function () {
+          emit('state', core.view());
+          throw err;
+        });
       });
     };
 
