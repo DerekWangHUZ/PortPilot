@@ -1,4 +1,11 @@
-/* 应用外壳：导航、渲染、事件 */
+/* 应用外壳：导航、渲染、事件
+ * ─────────────────────────────────────────────────────────────────────────
+ * 结构对齐 macUI-SolidGlass（S1-S11）：
+ *   - .window → .main → .page → .page-inner → .toolbar 外壳链路（index.html）
+ *   - 侧栏 fixed 悬浮 + 五段解剖；导航 = 999px 胶囊
+ *   - is-desktop 接线：拖拽带（.drag-strip + [data-drag]）、window.state → html.is-maximized
+ *   - 自绘滚动条 PP.macScrollbar.attach(.page)；⌘K 命令面板 PP.commandPalette
+ */
 (function () {
   'use strict';
 
@@ -13,10 +20,16 @@
     { id: 'settings', label: '设置', icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>' },
     { id: 'logs', label: '运行记录', icon: '<path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/>' }
   ];
+  var WORKBENCH_IDS = ['overview', 'ports', 'nodes', 'connections', 'rules'];
+  var SYSTEM_IDS = ['settings', 'logs'];
 
-  var state = { page: 'overview', options: {}, view: null, booted: false, systemTheme: 'light', healTimer: null };
+  var state = { page: 'overview', options: {}, view: null, booted: false, systemTheme: 'light', healTimer: null, maximized: false };
   var core = PP.core.createCore({ bridge: PP.bridge });
   var viewEl = document.getElementById('view');
+  var pageEl = document.getElementById('page');
+  var toolbarTitle = document.getElementById('toolbar-title');
+  var toolbarSubtitle = document.getElementById('toolbar-subtitle');
+  var toolbarActions = document.getElementById('toolbar-actions');
 
   function effectiveTheme() {
     var want = core.state.settings.theme;
@@ -42,7 +55,7 @@
       ctx.options = state.options;
       renderNav();
       renderPage(false);
-      viewEl.scrollTop = 0;
+      pageEl.scrollTop = 0;
       var mod = PP.pages[page];
       if (mod && mod.enter) {
         try { mod.enter(ctx); } catch (e) { }
@@ -74,21 +87,34 @@
     applyTheme: applyTheme
   };
 
-  /* --------------------------------------------------------------- 渲染 */
+  /* --------------------------------------------------------------- 导航 */
+  /* S3/S4：侧栏分两组（工作台 / 系统），导航项 = 33px 胶囊 */
+  function navItemHtml(item, count) {
+    var badge = count ? '<b>' + count + '</b>' : '';
+    return '<button class="nav-item' + (state.page === item.id ? ' active' : '') + '" data-page="' + item.id + '"' +
+      (state.page === item.id ? ' aria-current="page"' : '') + '>' +
+      '<svg viewBox="0 0 24 24">' + item.icon + '</svg><span>' + item.label + '</span>' + badge + '</button>';
+  }
+
   function renderNav() {
     var v = state.view;
     var count = v ? v.ports.length : 0;
     var listening = v ? v.ports.filter(function (p) { return p.status === 'on'; }).length : 0;
-    var html = NAV.map(function (item) {
-      var badge = '';
-      if (item.id === 'ports' && count) badge = '<b>' + count + '</b>';
-      if (item.id === 'connections' && listening) badge = '<b>' + listening + '</b>';
-      return '<button class="nav-item' + (state.page === item.id ? ' active' : '') + '" data-page="' + item.id + '">' +
-        '<svg viewBox="0 0 24 24">' + item.icon + '</svg><span>' + item.label + '</span>' + badge + '</button>';
+
+    var workbench = WORKBENCH_IDS.map(function (id) {
+      var item = NAV.filter(function (n) { return n.id === id; })[0];
+      return navItemHtml(item, item.id === 'ports' ? count : (item.id === 'connections' ? listening : 0));
     }).join('');
+    var system = SYSTEM_IDS.map(function (id) {
+      return navItemHtml(NAV.filter(function (n) { return n.id === id; })[0], 0);
+    }).join('');
+
     var nav = document.getElementById('nav');
-    nav.innerHTML = html;
-    nav.querySelectorAll('[data-page]').forEach(function (btn) {
+    nav.innerHTML = workbench;
+    var navSystem = document.getElementById('nav-system');
+    navSystem.innerHTML = system;
+
+    document.querySelectorAll('#nav-scroll [data-page]').forEach(function (btn) {
       btn.addEventListener('click', function () { ctx.go(btn.getAttribute('data-page')); });
     });
   }
@@ -125,16 +151,55 @@
     return out;
   }
 
+  /* --------------------------------------------------------------- 页面渲染 */
+  /* S8：页面只产出 .page-head 以下的内容；标题归 .toolbar（title1 22px），
+     副标题进 .toolbar__subtitle，动作按钮进 .toolbar__actions。 */
   function renderPage(keepScroll) {
     var page = PP.pages[state.page];
     if (!page) return;
-    var scrollTop = viewEl.scrollTop;
+    var scrollTop = pageEl.scrollTop;
     ctx.view = state.view || core.view();
     var result = page.render(ctx);
     ctx.actions = result.handlers || {};
-    viewEl.innerHTML = result.html;
 
-    viewEl.onclick = function (e) {
+    var html = result.html;
+    var head = extractHead(result);
+    html = head.html;
+
+    toolbarTitle.textContent = page.title || '';
+    toolbarSubtitle.textContent = head.subtitle || '';
+    toolbarActions.innerHTML = head.actions || '';
+    viewEl.innerHTML = html;
+
+    bindActionHost(viewEl);
+    bindActionHost(toolbarActions);
+
+    if (result.after) {
+      try { result.after(viewEl); } catch (e) { }
+    }
+    if (keepScroll) pageEl.scrollTop = scrollTop;
+    if (PP.macScrollbar) PP.macScrollbar.attach(pageEl).sync();
+  }
+
+  /* 从页面产出里摘出 .page-head 的副标题与动作，正文用剩余部分 */
+  function extractHead(result) {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = result.html;
+    var headEl = tmp.querySelector('.page-head');
+    var out = { html: result.html, subtitle: '', actions: '' };
+    if (!headEl) return out;
+    var p = headEl.querySelector('p');
+    var acts = headEl.querySelector('.head-actions');
+    out.subtitle = p ? p.textContent : '';
+    out.actions = acts ? acts.innerHTML : '';
+    headEl.parentNode.removeChild(headEl);
+    out.html = tmp.innerHTML;
+    return out;
+  }
+
+  function bindActionHost(host) {
+    if (!host) return;
+    host.onclick = function (e) {
       var el = e.target.closest('[data-act]');
       if (!el) return;
       var tag = el.tagName;
@@ -144,25 +209,18 @@
       e.preventDefault();
       fn(datasetOf(el), e);
     };
-
-    var onChange = function (e) {
+    host.onchange = function (e) {
       var el = e.target.closest('[data-act]');
       if (!el) return;
       var fn = ctx.actions[el.getAttribute('data-act')];
       if (fn) fn(datasetOf(el), e);
     };
-    viewEl.onchange = onChange;
-    viewEl.oninput = function (e) {
+    host.oninput = function (e) {
       var el = e.target.closest('[data-act]');
       if (!el) return;
       var fn = ctx.actions[el.getAttribute('data-act')];
       if (fn && el.getAttribute('data-live') === '1') fn(datasetOf(el), e);
     };
-
-    if (result.after) {
-      try { result.after(viewEl); } catch (e) { }
-    }
-    if (keepScroll) viewEl.scrollTop = scrollTop;
   }
 
   function fullRender() {
@@ -176,6 +234,11 @@
     state.systemTheme = data && data.mode ? data.mode : 'light';
     applyTheme();
     if (core.state.settings.theme === 'system') renderPage(true);
+  });
+
+  /* S9：宿主推来的窗口最大化状态 → html.is-maximized（CSS 归零圆角与描边） */
+  PP.bridge.on('window.state', function (data) {
+    setMaximized(!!(data && data.maximized));
   });
 
   PP.bridge.on('config.changed', function () {
@@ -193,6 +256,7 @@
     state.view = view;
     if (!state.booted) return;
     fullRender();
+    syncPaletteLabels();
   });
 
   core.on('busy', function (busy) {
@@ -200,9 +264,89 @@
     if (state.booted) renderPage(true);
   });
 
-  document.querySelector('.nav.ghost').addEventListener('click', function () {
+  document.getElementById('nav-quit').addEventListener('click', function () {
     PP.bridge.invoke('app.exit');
   });
+
+  /* ------------------------------------------------ 命令面板（S11） */
+  function setMaximized(v) {
+    state.maximized = !!v;
+    document.documentElement.classList.toggle('is-maximized', state.maximized);
+    var maxLight = document.querySelector('.light.max');
+    if (maxLight) {
+      maxLight.setAttribute('aria-label', state.maximized ? '还原' : '最大化');
+      maxLight.title = state.maximized ? '还原' : '最大化';
+    }
+  }
+
+  function syncPaletteLabels() {
+    var v = state.view;
+    if (!v || !PP.commandPalette) return;
+    var toggle = v.ports.length
+      ? { id: 'port-toggle-selected', group: '端口', icon: '<path d="M4 7h16M4 12h16M4 17h10"/>',
+          label: (v.ports[0].enabled ? '关闭' : '打开') + '端口 ' + v.ports[0].port,
+          hint: '第一个端口', keywords: 'port toggle on off 开关',
+          run: function () {
+            var p = state.view.ports[0];
+            if (!p) return;
+            ctx.run(function () { return core.setEnabled(p.port, !p.enabled); },
+              '端口 ' + p.port + ' 已' + (p.enabled ? '关闭' : '打开'));
+          } }
+      : null;
+    var nodeCmd = (v.ports.length && v.nodes.length)
+      ? { id: 'node-select-first-port', group: '节点', icon: '<path d="M12 3v6M12 15v6M5 12h14"/><circle cx="12" cy="12" r="3"/>',
+          label: '为端口 ' + v.ports[0].port + ' 选择节点',
+          hint: '跳到节点页', keywords: 'node select 选择 节点',
+          run: function () { ctx.go('nodes'); } }
+      : null;
+    if (toggle) PP.commandPalette.register(toggle);
+    if (nodeCmd) PP.commandPalette.register(nodeCmd);
+  }
+
+  function registerCommands() {
+    if (!PP.commandPalette) return;
+
+    /* 视图跳转：7 页 */
+    NAV.forEach(function (item) {
+      PP.commandPalette.register({
+        id: 'go-' + item.id,
+        group: '视图',
+        icon: item.icon,
+        label: '跳转到「' + item.label + '」',
+        hint: '页面',
+        keywords: item.id + ' goto page',
+        run: function () { ctx.go(item.id); }
+      });
+    });
+
+    /* 建端口（跳到端口页并聚焦输入框） */
+    PP.commandPalette.register({
+      id: 'port-create',
+      group: '端口',
+      icon: '<path d="M12 5v14M5 12h14"/>',
+      label: '新建端口…',
+      hint: '端口页',
+      keywords: 'create port 新建 端口 add',
+      run: function () {
+        ctx.go('ports');
+        setTimeout(function () {
+          var inputEl = document.getElementById('new-ports');
+          if (inputEl) inputEl.focus();
+        }, 60);
+      }
+    });
+
+    /* 打开设置 */
+    PP.commandPalette.register({
+      id: 'open-settings',
+      group: '系统',
+      icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',
+      label: '打开设置',
+      hint: '外观 / 配置 / 还原',
+      keywords: 'settings 设置 open',
+      run: function () { ctx.go('settings'); }
+    });
+  }
 
   /* ------------------------------------------------ 窗口按钮 / 拖动 / 描边色 */
   function pushFrameColor() {
@@ -215,24 +359,45 @@
       var act = btn.getAttribute('data-win');
       if (act === 'close') PP.bridge.invoke('app.exit');
       else if (act === 'min') PP.bridge.invoke('window.minimize');
-      else PP.bridge.invoke('window.toggleMaximize').then(function (r) { state.maximized = !!(r && r.maximized); });
+      else PP.bridge.invoke('window.toggleMaximize').then(function (r) { setMaximized(!!(r && r.maximized)); });
     });
   });
 
+  /* 桌面接线：data-drag 拖动区（侧栏 chrome / header / drag-strip） */
   document.addEventListener('mousedown', function (e) {
     if (e.button !== 0) return;
     if (e.target.closest('button, input, select, textarea, a')) return;
-    if (!e.target.closest('[data-drag]')) return;
+    if (!e.target.closest('[data-drag], .drag-strip')) return;
     PP.bridge.invoke('window.beginDrag');
   });
 
   document.addEventListener('dblclick', function (e) {
     if (e.target.closest('button, input, select, textarea, a')) return;
-    if (!e.target.closest('[data-drag]')) return;
-    PP.bridge.invoke('window.toggleMaximize');
+    if (!e.target.closest('[data-drag], .drag-strip')) return;
+    PP.bridge.invoke('window.toggleMaximize').then(function (r) { setMaximized(!!(r && r.maximized)); });
   });
 
-  /* ------------------------------------------- 边缘拖动缩放（与示例项目同思路） */
+  /* 侧栏搜索钮 → 命令面板（S11） */
+  document.getElementById('open-command').addEventListener('click', function () {
+    if (PP.commandPalette) PP.commandPalette.open();
+  });
+
+  /* ------------------------------------------------ 桌面运行标记（S9） */
+  var isDesktop = !!(window.go && window.go.main && window.go.main.App);
+  document.documentElement.classList.toggle('is-desktop', isDesktop);
+
+  /* 桌面端：内容区顶部 22px 拖拽带（模板 desktop.js ensureDragStrip） */
+  function ensureDragStrip() {
+    if (!document.body || document.querySelector('.drag-strip')) return;
+    var strip = document.createElement('div');
+    strip.className = 'drag-strip';
+    strip.setAttribute('data-drag', '');
+    strip.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(strip);
+  }
+  if (isDesktop) ensureDragStrip();
+
+  /* ------------------------------------------------ 边缘拖动缩放（保留既有机制） */
   var EDGE = 6;
   var EDGE_CURSOR = {
     left: 'w-resize', right: 'e-resize', top: 'n-resize', bottom: 's-resize',
@@ -275,6 +440,8 @@
   state.systemTheme = (window.PP_PREFERS_DARK === true) ? 'dark' : 'light';
   document.body.classList.add('theme-dark');
 
+  registerCommands();
+
   PP.bridge.invoke('theme.get').then(function (res) {
     state.systemTheme = res && res.mode ? res.mode : 'light';
     applyTheme();
@@ -285,6 +452,9 @@
     state.booted = true;
     applyTheme();
     fullRender();
+    syncPaletteLabels();
+    /* 初始最大化状态：宿主 window.state 事件会在 watcher 首次采样后推来 */
+    if (PP.macScrollbar) PP.macScrollbar.attach(pageEl);
     if (!view.core.ok) {
       PP.ui.toast('err', 'Clash Verge 未运行：请先启动它，PortPilot 会自动认出内核。', 7000);
     } else {

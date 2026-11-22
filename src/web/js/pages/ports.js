@@ -15,6 +15,7 @@
       var ports = v.ports;
       var suggest = PP.model.nextFreePort(ctx.core.state.ports, ctx.core.state.settings.startPort);
 
+      /* S8：page-head 由 app.js 拆进 .toolbar */
       var head =
         '<div class="page-head"><div><h1>端口</h1><p>' + esc(this.subtitle) + '</p></div>' +
         '<div class="head-actions">' +
@@ -23,7 +24,8 @@
         '</div></div>';
 
       var create =
-        '<div class="card"><h3>新建端口</h3>' +
+        '<h2 class="section-title">新建端口</h2>' +
+        '<div class="card">' +
         '<div class="row">' +
         '<input type="text" id="new-ports" style="width:280px" placeholder="' + suggest + '，也可以写 10801,10802 或 10801-10805">' +
         '<button class="button primary" data-act="create">新建</button>' +
@@ -37,7 +39,8 @@
           '<h2>还没有端口</h2><p>在上面输入一个端口号开始。</p></div></div>';
       } else {
         body =
-          '<div class="card"><h3>端口列表<span class="hint">改端口号后会自动重新打开</span></h3>' +
+          '<h2 class="section-title">端口列表</h2>' +
+          '<div class="card"><h3>改端口号后会自动重新打开</h3>' +
           '<div class="table-wrap"><table class="fixed"><colgroup><col style="width:19%"><col style="width:10%">' +
           '<col><col style="width:20%"><col style="width:14%"></colgroup><thead><tr>' +
           '<th>端口号</th><th>开关</th><th>当前节点</th><th>状态</th><th class="num">操作</th>' +

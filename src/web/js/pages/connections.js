@@ -54,6 +54,7 @@
       var busyCount = 0;
       Object.keys(agg.byPort).forEach(function (k) { busyCount += agg.byPort[k].count; });
 
+      /* S8：page-head 由 app.js 拆进 .toolbar */
       var head =
         '<div class="page-head"><div><h1>连接与流量</h1><p>' + esc(this.subtitle) + '</p></div>' +
         '<div class="head-actions"><button class="button primary" data-act="refresh">刷新快照</button></div></div>';
@@ -82,7 +83,8 @@
       }).join('');
 
       var table = v.ports.length
-        ? '<div class="card"><h3>按端口汇总</h3><div class="table-wrap"><table class="fixed"><colgroup>' +
+        ? '<h2 class="section-title">按端口汇总</h2><div class="card">' +
+        '<div class="table-wrap"><table class="fixed"><colgroup>' +
         '<col style="width:19%"><col style="width:13%"><col style="width:26%"><col style="width:8%">' +
         '<col style="width:11%"><col style="width:11%"><col style="width:12%"></colgroup><thead><tr>' +
         '<th>端口</th><th>状态</th><th>节点</th><th class="num">连接</th><th class="num">上传</th>' +
@@ -95,7 +97,7 @@
         var port = ctx.options.detailPort;
         var bucket = agg.byPort[port];
         var items = bucket ? bucket.items : [];
-        detail = '<div class="card"><h3>端口 ' + port + ' 的连接明细</h3>' +
+        detail = '<h2 class="section-title">端口 ' + port + ' 的连接明细</h2><div class="card">' +
           (items.length
             ? '<div class="table-wrap"><table><thead><tr><th>目标</th><th>协议</th><th>匹配规则</th><th>链路</th>' +
             '<th class="num">上传</th><th class="num">下载</th></tr></thead><tbody>' +

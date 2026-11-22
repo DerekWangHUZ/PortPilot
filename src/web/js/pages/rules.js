@@ -37,6 +37,7 @@
         });
       });
 
+      /* S8：page-head 由 app.js 拆进 .toolbar */
       var head =
         '<div class="page-head"><div><h1>规则</h1><p>' + esc(this.subtitle) + '</p></div>' +
         '<div class="head-actions"><button class="button primary" data-act="refresh">读取</button></div></div>';
@@ -65,8 +66,10 @@
 
       return {
         html: head +
-          '<div class="card"><h3>规则<span class="hint">共 ' + rules.length + ' 条</span></h3>' + rulesTable + '</div>' +
-          '<div class="card"><h3>策略组<span class="hint">共 ' + groups.length + ' 个</span></h3>' + groupsTable + '</div>',
+          '<h2 class="section-title">规则</h2>' +
+          '<div class="card"><h3>共 ' + rules.length + ' 条</h3>' + rulesTable + '</div>' +
+          '<h2 class="section-title">策略组</h2>' +
+          '<div class="card"><h3>共 ' + groups.length + ' 个</h3>' + groupsTable + '</div>',
         handlers: {
           'refresh': function () {
             ctx.run(function () {

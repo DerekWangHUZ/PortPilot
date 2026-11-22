@@ -50,6 +50,7 @@ func main() {
 
 	app := NewApp()
 
+	// 窗口圆角由 SetWindowRgn 裁出（win.go），底色随主题保持一致避免首帧闪角
 	background := &options.RGBA{R: 245, G: 245, B: 247, A: 1}
 	if !themeIsLight() {
 		background = &options.RGBA{R: 28, G: 28, B: 30, A: 1}

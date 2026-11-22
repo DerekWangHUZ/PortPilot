@@ -16,6 +16,7 @@
       var onCount = ports.filter(function (p) { return p.status === 'on'; }).length;
       var failed = ports.filter(function (p) { return p.status === 'failed'; });
 
+      /* S8：page-head 由 app.js 拆进 .toolbar（title1 / subtitle / actions） */
       var head =
         '<div class="page-head"><div><h1>总览</h1><p>' + esc(this.subtitle) + '</p></div>' +
         '<div class="head-actions">' +
@@ -41,7 +42,7 @@
         '<div class="grid cols-3" style="margin-bottom:14px">' +
         '<div class="stat"><span>端口</span><b>' + ports.length + '</b><small>已打开 ' + onCount + ' 个</small></div>' +
         '<div class="stat"><span>节点</span><b>' + v.nodes.length + '</b><small>可选节点</small></div>' +
-        '<div class="stat"><span>Clash Verge</span><b>' + (v.core.ok ? '已就绪' : '未就绪') + '</b><small>' +
+        '<div class="stat"><span>Clash Verge</span><b style="font-size:var(--font-title2-size);line-height:var(--font-title2-lh);letter-spacing:var(--track-17)">' + (v.core.ok ? '已就绪' : '未就绪') + '</b><small>' +
         esc(v.core.version || '—') + (v.core.tunEnabled ? ' · TUN 已开启' : '') + '</small></div>' +
         '</div>';
 
@@ -56,7 +57,8 @@
           '</div></div>';
       } else {
         body =
-          '<div class="card"><h3>端口状态<span class="hint">端口号 / 开关 / 当前节点 / 状态</span></h3>' +
+          '<h2 class="section-title">端口状态</h2>' +
+          '<div class="card"><h3>端口号 / 开关 / 当前节点 / 状态</h3>' +
           '<div class="table-wrap"><table class="fixed"><colgroup><col style="width:22%"><col style="width:11%">' +
           '<col><col style="width:22%"><col style="width:12%"></colgroup><thead><tr>' +
           '<th>端口号</th><th>开关</th><th>当前节点</th><th>状态</th><th class="num">测速</th>' +

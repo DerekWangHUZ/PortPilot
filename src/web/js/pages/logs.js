@@ -23,6 +23,7 @@
     render: function (ctx) {
       var entries = (ctx.options && ctx.options.logEntries) || [];
 
+      /* S8：page-head 由 app.js 拆进 .toolbar */
       var head =
         '<div class="page-head"><div><h1>运行记录</h1><p>' + esc(this.subtitle) + '</p></div>' +
         '<div class="head-actions">' +
@@ -36,7 +37,8 @@
           '<div class="visual"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>' +
           '<h2>还没有记录</h2><p>点右上角「刷新」读取记录文件。</p></div></div>';
       } else {
-        body = '<div class="card"><h3>最近 ' + entries.length + ' 条</h3><div class="table-wrap">' +
+        body = '<h2 class="section-title">最近 ' + entries.length + ' 条</h2><div class="card">' +
+          '<div class="table-wrap">' +
           '<table class="fixed"><colgroup><col style="width:15%"><col style="width:19%"><col style="width:8%">' +
           '<col style="width:26%"><col style="width:10%"><col></colgroup><thead><tr><th>时间</th><th>操作</th>' +
           '<th>端口</th><th>节点</th><th>结果</th><th>说明</th>' +
@@ -52,7 +54,6 @@
               '</tr>';
           }).join('') + '</tbody></table></div></div>';
       }
-
       return {
         html: head + body,
         handlers: {

@@ -14,6 +14,7 @@
       var v = ctx.view;
       var ports = v.ports;
 
+      /* S8：page-head 由 app.js 拆进 .toolbar */
       var head =
         '<div class="page-head"><div><h1>节点</h1><p>' + esc(this.subtitle) + '</p></div>' +
         '<div class="head-actions"><button class="button primary" data-act="refresh">刷新节点</button></div></div>';
@@ -51,7 +52,8 @@
       }).join('');
 
       var html = head +
-        '<div class="card"><h3>每个端口的节点<span class="hint">共 ' + v.nodes.length + ' 个可选节点</span></h3>' +
+        '<h2 class="section-title">每个端口的节点</h2>' +
+        '<div class="card"><h3>共 ' + v.nodes.length + ' 个可选节点</h3>' +
         '<div class="table-wrap"><table class="fixed"><colgroup>' +
         '<col style="width:11%"><col style="width:8%"><col style="width:53%"><col style="width:14%"><col style="width:14%">' +
         '</colgroup><thead><tr>' +

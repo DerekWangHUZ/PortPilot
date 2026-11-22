@@ -14,10 +14,12 @@
       var v = ctx.view;
       var st = ctx.core.state.settings;
 
+      /* S8：page-head 由 app.js 拆进 .toolbar */
       var head = '<div class="page-head"><div><h1>设置</h1><p>' + esc(this.subtitle) + '</p></div></div>';
 
       var appearance =
-        '<div class="card"><h3>外观</h3><div class="split">' +
+        '<h2 class="section-title">外观</h2>' +
+        '<div class="card"><div class="split">' +
         '<div class="field"><span>主题</span><select data-act="theme">' +
         '<option value="system"' + (st.theme === 'system' ? ' selected' : '') + '>跟随系统</option>' +
         '<option value="light"' + (st.theme === 'light' ? ' selected' : '') + '>浅色</option>' +
@@ -28,7 +30,8 @@
         '</div></div>';
 
       var data =
-        '<div class="card"><h3>配置</h3><div class="row">' +
+        '<h2 class="section-title">配置</h2>' +
+        '<div class="card"><div class="row">' +
         '<button class="button" data-act="export">导出配置</button>' +
         '<button class="button" data-act="import">导入配置</button>' +
         '<button class="button" data-act="open-data">打开数据目录</button>' +
@@ -36,7 +39,8 @@
         '导出的文件只包含端口号、开关与所选节点，不含任何订阅信息。</p></div>';
 
       var danger =
-        '<div class="card"><h3>还原</h3>' +
+        '<h2 class="section-title">还原</h2>' +
+        '<div class="card">' +
         '<p class="hint-line">把 PortPilot 写进 Clash Verge 的内容全部撤掉：端口停止监听，扩展模板还原成原来的样子。' +
         '你原来的订阅、规则、节点都不受影响。</p>' +
         '<div class="row" style="margin-top:12px">' +
@@ -45,7 +49,8 @@
         '</div></div>';
 
       var about =
-        '<div class="card"><h3>关于</h3><dl class="kv">' +
+        '<h2 class="section-title">关于</h2>' +
+        '<div class="card"><dl class="kv">' +
         '<dt>版本</dt><dd>PortPilot ' + esc(v.app ? v.app.version : '—') + '</dd>' +
         '<dt>Clash Verge</dt><dd>' + (v.core.ok ? '已就绪，内核 ' + esc(v.core.version || '—') : '未就绪（' + esc(v.core.error || '未运行') + '）') + '</dd>' +
         '<dt>内核端口</dt><dd>' + (v.core.mixedPort ? ('混合端口 ' + v.core.mixedPort) : '—') + (v.core.tunEnabled ? '，TUN 已开启' : '') + '</dd>' +
