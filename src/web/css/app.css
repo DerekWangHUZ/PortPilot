@@ -47,10 +47,13 @@
 }
 
 :root {
-  /* ---- 功能色（状态/品牌语义色，非材质 token，维持原值） ---- */
-  --blue: #007aff;
-  --blue-strong: #0066d6;
-  --blue-soft: rgba(0, 122, 255, 0.13);
+  /* ---- 功能色（状态/语义色，维持原值） ----
+     强调色机制已移除（Solid Glass 官方定调「primary is the ink」）：
+     --blue 系列改为官方中性墨面/灰阶，主控件回归单色；变量名保留以免
+     扩大 diff。语义色（green/red/amber）保留——官方把 hue 留给 meaningful feedback。 */
+  --blue: oklch(0.2 0 0);
+  --blue-strong: oklch(0.32 0 0);
+  --blue-soft: oklch(0.3 0.02 265 / 9%);
   --green: #248b43;
   --green-soft: rgba(48, 184, 89, 0.12);
   --red: #c0392b;
@@ -97,8 +100,8 @@
   --dur: 0.18s;
   --dur-slow: 0.28s;
 
-  /* ---- 焦点环 ---- */
-  --ring: rgba(0, 122, 255, 0.55);
+  /* ---- 焦点环（官方 --ring：中性灰 oklch(0.7 0 0) 的等效） ---- */
+  --ring: rgba(0, 0, 0, 0.35);
 
   /* ---- 页面与三档厚度（模板：panel < card < popover） ---- */
   /* 页面不透明冷灰，够深，玻璃才能在上面站得住（模板 --background） */
@@ -225,7 +228,7 @@ body.theme-dark {
   --light-2: transparent;
   --light-3: transparent;
 
-  --ring: rgba(0, 145, 255, 0.6);
+  --ring: rgba(255, 255, 255, 0.42);
 }
 
 /* ================================================================ 基础层 */
