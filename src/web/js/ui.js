@@ -160,6 +160,11 @@
     window.addEventListener('scroll', onViewportChange, true);
     window.addEventListener('resize', onViewportChange);
 
+    function onDocClick(e) {
+      if (!picker.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('click', onDocClick);
+
     button.addEventListener('click', function (e) {
       e.stopPropagation();
       if (disabled) return;
@@ -178,17 +183,46 @@
       if (opts.onPick) opts.onPick(value);
     });
 
-    document.addEventListener('click', function (e) {
-      if (!picker.contains(e.target)) setOpen(false);
-    });
-
     paintValue();
+    var destroyed = false;
     return {
       setValue: function (v) { value = v; paintValue(); },
       setOptions: function (list2) { options = list2 || []; paintList(); },
       setDisabled: function (d) { disabled = d; button.disabled = d; if (d) setOpen(false); },
-      getValue: function () { return value; }
+      getValue: function () { return value; },
+      /* 清掉挂在 window/document 上的监听器；宿主节点被 innerHTML 重建时必须调用，
+         否则每次渲染泄漏 3 个全局监听（闭包持有整个 picker DOM，无法回收） */
+      destroy: function () {
+        if (destroyed) return;
+        destroyed = true;
+        setOpen(false);
+        window.removeEventListener('scroll', onViewportChange, true);
+        window.removeEventListener('resize', onViewportChange);
+        document.removeEventListener('click', onDocClick);
+      }
     };
+  }
+
+  /* searchSelect 实例登记表：宿主节点被移除时统一 destroy。
+     每次全量渲染前调用 sweepSearchSelects()，替代逐个手工管理。 */
+  var livePickers = new Set();
+  function trackPicker(host, inst) {
+    livePickers.add(inst);
+    if (!host.__ppPickerTracked) {
+      host.__ppPickerTracked = true;
+      var observer = new MutationObserver(function () {
+        if (!host.isConnected) {
+          inst.destroy();
+          livePickers.delete(inst);
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    }
+  }
+  function sweepSearchSelects() {
+    livePickers.forEach(function (inst) { inst.destroy(); });
+    livePickers.clear();
   }
 
   function statusBadge(view) {
@@ -211,6 +245,8 @@
     confirmModal: confirmModal,
     infoModal: infoModal,
     searchSelect: searchSelect,
+    trackPicker: trackPicker,
+    sweepSearchSelects: sweepSearchSelects,
     statusBadge: statusBadge,
     nodeCell: nodeCell
   };

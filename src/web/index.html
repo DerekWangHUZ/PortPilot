@@ -3,6 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- CSP：脚本只允许同源（Wails 运行时 /wails/*.js 也是同源注入，不受影响）。
+     style-src 需要 unsafe-inline：页面大量使用 style 属性内联样式；
+     img-src 允许 data: URI（app.css 里的 SVG 背景）。 -->
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'" />
 <title>PortPilot</title>
 <link rel="stylesheet" href="css/app.css" />
 </head>

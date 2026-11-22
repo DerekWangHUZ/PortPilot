@@ -2,6 +2,38 @@
 
 版本号只保留两级：`v<主>.<次>`。
 
+## v1.4 — 2026-11-23
+
+### 修复
+- **「移除全部端口并还原」必然报错**（设置页的核心按钮从未真正工作过）：`reset()` 先把 busy 置 true 再调 `applyAll`，被 `applyAll` 的忙碌守卫立刻拒绝。现在 reset 不再手动置 busy；失败时端口列表从 state.json 恢复，不再留下「界面已清空、state.json 未保存、内核监听还在」的不一致状态
+- **`applyAll` 回滚路径会把 busy 永久卡死**：回滚链里 `previousPayload` 的兜底 PUT 若也失败，拒绝会跳过 `busy = false`，之后所有操作都被「正在处理上一个操作」挡住。现在回滚两步都尽力而为，busy 一定复位、错误一定上报
+- **改选节点失败会丢掉原节点**：`selectNode` 失败回退把 `node` 抹成 null，原本选着的节点 A 也丢了。现在失败恢复到之前选中的节点
+- **首次发现管道的条件性自举死锁**：secret 原来在发现成功后才设置；一旦内核对命名管道也校验 Bearer 凭据，首次发现必然 401，secret 永远没机会就位。现在 secret 先于发现管道设置（`pipe.status` / `--selftest` 顺序同步修正）
+- **`applyAll` 总结日志与回滚日志未纳入链**：调用方拿到结果时日志可能还没落盘，测试与排查读到旧文件。现在日志写完才返回
+- `state.lastBackup.stamp` 与实际备份目录可能差 1 秒（两次 `nowStamp()`）；现在复用同一个 stamp
+
+### 安全
+- index.html 增加 Content-Security-Policy：脚本仅限同源（Wails 运行时为同源注入，不受影响）；这个应用里一次转义遗漏就等于任意写文件，多一层兜底
+- `pipe.status` 不再把内核 secret 回传给前端（前端从未使用）
+- `net.probe` 限制探测列表最多 512 个、越界端口直接返回不可用，不再照单全收
+
+### 可靠性
+- **修复节点下拉的监听器泄漏**：每次渲染泄漏 3 个 window/document 级监听（闭包持有整个 picker DOM），长会话无界增长；现在渲染前统一清理上一轮实例，宿主节点移除时自动 destroy
+- **管道发现并行化**：候选管道逐个串行探测（每个 1.5s 超时），Verge 未运行时 `pipe.status` 最长要等候选数 × 1.5s；现在并行探测，总耗时不超过单次超时
+- `applyAll` 里逐端口回读组状态的 N 次串行请求改为并行
+- `vergeRunning` 不再是启动时刻的快照：`pipe.status` 每次返回实时进程状态（旧宿主无此字段时回退快照，保持兼容）
+- `portpilot.log` 超过 2MB 自动截断保留尾部（原来无限增长，且 Wails 的 INFO/DEBUG 全量写入）
+- 原子写的临时文件名带 pid + 纳秒时间戳：并发写同一目标不再共用一个 tmp 互踩
+
+### 清理
+- 移除前端从未生效的 `window.setFrame` 调用与后端空操作分支、`window.PP_PREFERS_DARK` 死引用（改用标准 `prefers-color-scheme` 媒体查询）、无人调用的 `registerBatch`、无 UI 入口的 `settings.watchConfig` 死设置、手写 `indexOfBytes`/ASCII `lower`（改用 `bytes.Index`/`strings.ToLower`）
+- `appVersion` 与版本资源同步为 1.4（旧版 `paths.go` 里还是 1.1，设置页「关于」显示的是旧版本号）
+
+### 测试
+- 单元测试 49 → 54 项：reset 成功/失败恢复、selectNode 失败恢复原节点、probeCore 实时状态与兼容回退
+- 新增 Go 单元测试（此前 Go 侧零覆盖）：管道 HTTP 解析边界（CL 截断、chunked、无分隔符、大小写）、原子写与临时名、日志轮转、端口探测上界，共 17 项
+- `applyAll` 忙碌卡死由新增的 reset 失败场景意外抓出（先写测试再修的额外收益）
+
 ## v1.3 — 2026-11-06
 
 ### 修复

@@ -2,6 +2,7 @@
 //   - 应用图标    build/windows/icon.ico        -> RT_GROUP_ICON "APPICON"
 //   - DPI 清单    build/windows/wails.exe.manifest -> RT_MANIFEST
 //   - 版本信息    build/windows/info.json       -> RT_VERSION
+//
 // 用法：go run . <项目根目录>
 package main
 

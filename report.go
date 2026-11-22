@@ -61,11 +61,35 @@ func logLine(text string) {
 	}
 }
 
+// maxLogBytes 单份日志上限：超过就把旧内容截断到尾部一半，避免无限增长。
+const maxLogBytes = 2 * 1024 * 1024
+
+func rotateIfNeeded(path string) {
+	st, err := os.Stat(path)
+	if err != nil || st.Size() < maxLogBytes {
+		return
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	// 从中点向后找第一个换行，保留后半段（日志前缀行至少 22 字节，不会切出半行开头）
+	keep := len(b) / 2
+	for keep < len(b) && b[keep] != '\n' {
+		keep++
+	}
+	if keep < len(b) {
+		keep++
+	}
+	_ = os.WriteFile(path, b[keep:], 0o644)
+}
+
 func appendLine(path, line string) bool {
 	if path == "" {
 		return false
 	}
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	rotateIfNeeded(path)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return false

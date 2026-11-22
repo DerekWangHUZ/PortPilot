@@ -14,7 +14,6 @@
       settings: {
         theme: 'system',
         testUrl: DEFAULT_TEST_URL,
-        watchConfig: true,
         startPort: 10801
       },
       lastBackup: null
@@ -50,7 +49,6 @@
     out.settings = {
       theme: ['system', 'light', 'dark'].indexOf(settings.theme) >= 0 ? settings.theme : 'system',
       testUrl: settings.testUrl ? String(settings.testUrl) : DEFAULT_TEST_URL,
-      watchConfig: settings.watchConfig !== false,
       startPort: util.isValidPort(parseInt(settings.startPort, 10)) ? parseInt(settings.startPort, 10) : 10801
     };
 

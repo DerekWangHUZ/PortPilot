@@ -73,6 +73,8 @@ func runSelfTest() int {
 		skip("verge.process", "Clash Verge 未运行")
 	}
 
+	// secret 先于发现管道：探测请求头里就要带凭据（与 pipeInfo 的顺序一致）
+	setPipeSecret(declaredSecret())
 	pipe := discoverPipe(true)
 	if pipe == "" {
 		skip("core.pipe", pipeError())
@@ -80,7 +82,6 @@ func runSelfTest() int {
 		skip("core.configs", "没有管道")
 	} else {
 		check("core.pipe", true, pipe)
-		setPipeSecret(declaredSecret())
 		v := requestOnPipe(pipe, "GET", "/version", "", 4000)
 		check("core.version", v != nil && v.Status == 200,
 			func() string {

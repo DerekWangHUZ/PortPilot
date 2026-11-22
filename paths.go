@@ -7,7 +7,7 @@ import (
 
 const (
 	appName         = "PortPilot"
-	appVersion      = "1.1"
+	appVersion      = "1.4"
 	vergeDataFolder = "io.github.clash-verge-rev.clash-verge-rev"
 	pipePrefix      = `\\.\pipe\`
 )
@@ -34,12 +34,12 @@ func exeDir() string {
 	return filepath.Dir(exe)
 }
 
-func appDataDir() string      { return filepath.Join(roamingDir(), appName) }
-func backupRootDir() string   { return filepath.Join(appDataDir(), "backup") }
-func stateFilePath() string   { return filepath.Join(appDataDir(), "state.json") }
-func runLogPath() string      { return filepath.Join(appDataDir(), "run-log.jsonl") }
-func vergeDataDir() string    { return filepath.Join(roamingDir(), vergeDataFolder) }
-func clashConfigPath() string { return filepath.Join(vergeDataDir(), "clash-verge.yaml") }
+func appDataDir() string       { return filepath.Join(roamingDir(), appName) }
+func backupRootDir() string    { return filepath.Join(appDataDir(), "backup") }
+func stateFilePath() string    { return filepath.Join(appDataDir(), "state.json") }
+func runLogPath() string       { return filepath.Join(appDataDir(), "run-log.jsonl") }
+func vergeDataDir() string     { return filepath.Join(roamingDir(), vergeDataFolder) }
+func clashConfigPath() string  { return filepath.Join(vergeDataDir(), "clash-verge.yaml") }
 func profilesYamlPath() string { return filepath.Join(vergeDataDir(), "profiles.yaml") }
 func profilesDirPath() string  { return filepath.Join(vergeDataDir(), "profiles") }
 

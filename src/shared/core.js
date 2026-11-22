@@ -107,7 +107,9 @@
         core.core_.pipe = info.pipe || null;
         core.core_.error = info.error || '';
         core.core_.version = null;
-        core.vergeRunning = !!core.app.vergeRunning;
+        // 宿主现在每次都返回实时的进程状态，不再依赖启动时刻的 app.info 快照
+        if (info.vergeRunning !== undefined) core.vergeRunning = !!info.vergeRunning;
+        else if (core.app) core.vergeRunning = !!core.app.vergeRunning;
         if (info.version) {
           var parsed = util.safeJson(info.version, null);
           if (parsed && parsed.version) core.core_.version = parsed.version;
@@ -183,24 +185,23 @@
       });
     };
 
-    /* 读取每个端口所属组当前选中的节点（用于「已保存」判定） */
+    /* 读取每个端口所属组当前选中的节点（用于「已保存」判定）。
+       各端口相互独立，并行请求：串行时 N 个端口 = N 次管道往返。 */
     core.loadGroupStates = function () {
       if (!core.core_.ok) { core.groupNow = {}; return Promise.resolve({}); }
-      var chain = Promise.resolve();
-      core.state.ports.forEach(function (p) {
+      var promises = core.state.ports.map(function (p) {
         var group = model.groupName(p.port);
-        chain = chain.then(function () {
-          return core.api.proxyState(group).then(function (st) {
-            core.groupNow[p.port] = st.now || null;
-          }, function () {
-            delete core.groupNow[p.port];
-          });
+        return core.api.proxyState(group).then(function (st) {
+          core.groupNow[p.port] = st.now || null;
+        }, function () {
+          delete core.groupNow[p.port];
         });
       });
-      return chain;
+      return Promise.all(promises).then(function () { return core.groupNow; });
     };
 
-    core.loadConnections = function () {      return core.api.connections().then(function (data) {
+    core.loadConnections = function () {
+      return core.api.connections().then(function (data) {
         core.connections = data;
         return data;
       });
@@ -303,6 +304,7 @@
       var previousPayload = core.lastGoodPayload;
       var backupInfo = null;
       var beforeTun = null;
+      var backupStamp = null; // 备份目录名与 state.lastBackup 用同一个 stamp，避免跨秒错位
       return Promise.resolve().then(function () {
         if (!core.core_.ok) throw new Error('Clash Verge 未运行，请先启动它');
         listenersToWrite = model.buildListeners(core.state.ports);
@@ -323,6 +325,7 @@
         payloadText = payloadMod.compose(configText, listenersToWrite, groups, runtimeTun);
         // 失败时至少要能退回「没注入任何内容」的原始配置
         if (!previousPayload) previousPayload = configText;
+        backupStamp = util.nowStamp();
         return core.api.applyPayload(payloadText);
       }).then(function () {
         // 已经落到内核，接着落盘到订阅的扩展模板
@@ -331,19 +334,16 @@
           profilesYaml: core.paths.profilesYamlPath,
           profilesDir: core.paths.profilesDir,
           backupDir: core.paths.backupDir,
-          stamp: util.nowStamp(),
+          stamp: backupStamp,
           listeners: listenersToWrite,
           groups: groups
         });
       }).then(function (info) {
         backupInfo = info;
-        core.state.lastBackup = { stamp: util.nowStamp(), backups: info.backups };
+        core.state.lastBackup = { stamp: backupStamp, backups: info.backups };
         core.lastGoodPayload = payloadText;
-        return core.verifyTun(beforeTun).then(function () { return info; });
-      }).then(function (info) {
-        backupInfo = info;
-        core.state.lastBackup = { stamp: util.nowStamp(), backups: info.backups };
-        core.lastGoodPayload = payloadText;
+        return core.verifyTun(beforeTun);
+      }).then(function () {
         return core.pushSelections();
       }).then(function () {
         // 把「节点已失效」的端口标记出来（无论开关，存着失效节点就要提示重新选择）
@@ -367,15 +367,18 @@
           var v = core.portView(p);
           return v.enabled && v.status !== STATUS.ON;
         });
-        core.appendLog({
+        // 总结日志纳入链：调用方拿到结果时日志一定已落盘
+        return core.appendLog({
           action: reason || '应用端口',
           ok: failed.length === 0,
           detail: failed.length ? ('未成功开放：' + failed.map(function (p) { return p.port; }).join('、')) : '全部正常'
+        }).then(function () {
+          emit('state', core.view());
+          return core.view();
         });
-        emit('state', core.view());
-        return core.view();
       }, function (err) {
-        // 回滚：先还原模板，再把内核退回上一次成功的配置
+        // 回滚：先还原模板，再把内核退回上一次成功的配置。
+        // 两步都尽力而为：回滚失败不能吞掉 busy 复位与错误上报（旧版会把 busy 永久卡死）。
         var chain = Promise.resolve();
         if (backupInfo && backupInfo.backups) {
           chain = chain.then(function () { return vergetpl.restore(io, backupInfo.backups); });
@@ -383,16 +386,19 @@
         if (previousPayload) {
           chain = chain.then(function () {
             // 回滚同样要把 tun 段做平，避免恢复配置时再拆建一次 TUN
-            return core.api.applyPayload(payloadMod.flattenTun(previousPayload, beforeTun));
-          }, function () { });
+            return core.api.applyPayload(payloadMod.flattenTun(previousPayload, beforeTun))
+              .catch(function () { });
+          });
         }
         return chain.then(function () {
           core.busy = false;
           core.lastError = err && err.message ? err.message : String(err);
           emit('busy', false);
-          core.appendLog({ action: reason || '应用端口', ok: false, detail: core.lastError });
-          emit('state', core.view());
-          throw err;
+          return core.appendLog({ action: reason || '应用端口', ok: false, detail: core.lastError })
+            .then(function () {
+              emit('state', core.view());
+              throw err;
+            });
         });
       });
     };
@@ -500,6 +506,7 @@
       core.state.ports.forEach(function (p) { if (p.port === port) target = p; });
       if (!target) return Promise.reject(new Error('找不到端口 ' + port));
       var group = model.groupName(port);
+      var prevNode = target.node; // 失败时要恢复的是「之前选中的节点」，而不是抹成 null
       target.node = node;
       var applied = false;
       return core.api.selectNode(group, node).catch(function (err) {
@@ -532,8 +539,8 @@
         emit('state', core.view());
         return true;
       }, function (err) {
-        // 选择失败时把状态退回去
-        target.node = null;
+        // 选择失败时把状态退回：恢复到之前选中的节点（可能为 null）
+        target.node = prevNode;
         return core.appendLog({ action: '选择节点', port: port, node: node, ok: false, detail: err.message }).then(function () {
           emit('state', core.view());
           throw err;
@@ -571,19 +578,18 @@
 
     /* 还原：把端口清空并回滚模板 */
     core.reset = function () {
-      if (core.busy) return Promise.reject(new Error('正在处理上一个操作，请稍候'));
-      core.busy = true;
-      emit('busy', true);
+      // busy 由 applyAll 自己管理：这里手动置 true 再调 applyAll，
+      // 会被 applyAll 的忙碌守卫立刻拒绝（旧版「移除全部端口并还原」因此必然报错）
       var backup = core.state.lastBackup;
       core.state.ports = [];
       return core.applyAll('移除全部端口').then(function (view) {
-        core.busy = false;
-        emit('busy', false);
         return view;
       }, function (err) {
-        core.busy = false;
-        emit('busy', false);
-        throw err;
+        // 失败时把端口还原回来，避免界面清空而 state.json 未保存的不一致
+        return core.store.load().then(function (st) {
+          core.state = st;
+          throw err;
+        }, function () { throw err; });
       });
     };
 

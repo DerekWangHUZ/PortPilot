@@ -51,9 +51,8 @@ func (a *App) dispatch(method string, p map[string]any) (any, error) {
 	case "window.beginDrag":
 		beginNativeDrag()
 		return ok(), nil
-	case "window.setFrame":
-		// 无边框窗口的底色由 Wails 的 BackgroundColour 负责，这里无需处理
-		return ok(), nil
+	// window.setFrame 已移除：无边框窗口的底色由 Wails 的 BackgroundColour 负责，
+	// 该分支原本就是空操作，前端也不再调用。
 
 	case "app.info":
 		return a.appInfo(), nil
@@ -130,7 +129,17 @@ func (a *App) dispatch(method string, p map[string]any) (any, error) {
 		}, nil
 
 	case "net.probe":
-		return map[string]any{"results": probePorts(getIntSlice(p, "ports"))}, nil
+		// 上界：探测列表来自前端输入，限制数量与单端口范围，避免异常输入拖垮宿主
+		ports := getIntSlice(p, "ports")
+		if len(ports) > 512 {
+			ports = ports[:512]
+		}
+		for i, v := range ports {
+			if v < 1 || v > 65535 {
+				ports[i] = 0
+			}
+		}
+		return map[string]any{"results": probePorts(ports)}, nil
 
 	case "dialog.saveText":
 		return dialogSaveText(a.ctx, getString(p, "defaultName", "portpilot-config.json"), getString(p, "content", ""))
@@ -181,18 +190,22 @@ func (a *App) appInfo() map[string]any {
 }
 
 func pipeInfo(force bool) map[string]any {
+	// secret 必须在发现管道之前就位：探测 /version 的请求头里就带 Authorization。
+	// 若等到发现成功再取（旧行为），内核一旦对管道也校验凭据，首次发现必然 401，
+	// secret 永远没机会被设置，形成条件性自举死锁。
+	setPipeSecret(declaredSecret())
 	pipe := discoverPipe(force)
 	res := map[string]any{
-		"pipe":    nil,
-		"error":   pipeError(),
-		"core":    false,
-		"version": nil,
-		"secret":  pipeSecretValue(),
+		"pipe":         nil,
+		"error":        pipeError(),
+		"core":         false,
+		"version":      nil,
+		"vergeRunning": processRunning("clash-verge"),
+		"coreRunning":  processRunning("verge-mihomo"),
 	}
 	if pipe == "" {
 		return res
 	}
-	setPipeSecret(declaredSecret())
 	version := any(nil)
 	core := false
 	if v := requestOnPipe(pipe, "GET", "/version", "", 2500); v != nil && v.Status == 200 {
@@ -202,7 +215,6 @@ func pipeInfo(force bool) map[string]any {
 	res["pipe"] = pipe
 	res["version"] = version
 	res["core"] = core
-	res["secret"] = pipeSecretValue()
 	if core {
 		res["error"] = ""
 	}

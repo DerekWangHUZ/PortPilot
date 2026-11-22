@@ -28,7 +28,7 @@
 { "version": 1,
   "ports": [ { "port": 10801, "enabled": true, "node": "🇭🇰3香港集群-全网优化(M)" } ],
   "settings": { "theme": "system", "testUrl": "http://cp.cloudflare.com/generate_204",
-                "watchConfig": true, "startPort": 10801 },
+                "startPort": 10801 },
   "lastBackup": { "stamp": "...", "backups": { "<目标文件>": "<备份文件>" } } }
 ```
 

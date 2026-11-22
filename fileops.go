@@ -2,9 +2,11 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -41,21 +43,19 @@ func writeTextFile(path, text string) error {
 }
 
 // writeTextFileAtomic 先写临时文件再改名，避免出现半截文件。
+// 临时名带 pid + 纳秒时间戳：并发写同一目标时不再共用一个 tmp 互踩。
 func writeTextFileAtomic(path, text string) error {
 	if dir := filepath.Dir(path); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 	}
-	tmp := path + ".portpilot-tmp"
+	tmp := path + fmt.Sprintf(".portpilot-tmp-%d-%d", os.Getpid(), time.Now().UnixNano())
 	if err := os.WriteFile(tmp, []byte(text), 0o644); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		// 目标被占用等情况退回直接写
-		if werr := os.WriteFile(path, []byte(text), 0o644); werr != nil {
-			_ = os.Remove(tmp)
-			return werr
-		}
+		// 目标被占用等情况退回直接写（放弃原子性，保住写入成功）
 		_ = os.Remove(tmp)
+		return os.WriteFile(path, []byte(text), 0o644)
 	}
 	return nil
 }
@@ -124,21 +124,11 @@ func dirNames(dir string) []string {
 }
 
 func lessFold(a, b string) bool {
-	la, lb := lower(a), lower(b)
+	la, lb := strings.ToLower(a), strings.ToLower(b)
 	if la == lb {
 		return a < b
 	}
 	return la < lb
-}
-
-func lower(s string) string {
-	b := []byte(s)
-	for i := range b {
-		if b[i] >= 'A' && b[i] <= 'Z' {
-			b[i] += 'a' - 'A'
-		}
-	}
-	return string(b)
 }
 
 func deleteFile(path string) {

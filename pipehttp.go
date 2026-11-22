@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -165,6 +166,8 @@ func reSwap(s, from, to string) string {
 }
 
 // discoverPipe 发现可用管道；成功返回完整管道路径。
+// 候选管道并行探测（每个 1.5s 超时）：串行时 Verge 未运行最长要等 候选数×1.5s，
+// 并行后总耗时不超过单次超时。顺序仍按 candidates 优先级取第一个成功者。
 func discoverPipe(force bool) string {
 	if !force {
 		if p := currentPipe(); p != "" {
@@ -172,11 +175,27 @@ func discoverPipe(force bool) string {
 		}
 	}
 	candidates := pipeCandidates()
-	alive := ""
-	for _, c := range candidates {
-		if r := requestOnPipe(c, "GET", "/version", "", 1500); r != nil && r.Status == 200 {
-			alive = c
-			break
+	type probe struct {
+		idx  int
+		pipe string // "" = 探测失败
+	}
+	ch := make(chan probe, len(candidates))
+	for i, c := range candidates {
+		go func(idx int, path string) {
+			// 无论成败都要发一条：主循环固定接收 len(candidates) 次，
+			// 只在成功时发送会因为没有候选成功而永久阻塞（自检已抓到过这个死锁）
+			if r := requestOnPipe(path, "GET", "/version", "", 1500); r != nil && r.Status == 200 {
+				ch <- probe{idx, path}
+			} else {
+				ch <- probe{idx, ""}
+			}
+		}(i, c)
+	}
+	alive, aliveIdx := "", -1
+	for range candidates {
+		p := <-ch
+		if p.pipe != "" && (alive == "" || p.idx < aliveIdx) {
+			alive, aliveIdx = p.pipe, p.idx
 		}
 	}
 	pipeMu.Lock()
@@ -316,7 +335,7 @@ func readAllWithTimeout(f *os.File, timeout time.Duration) ([]byte, error) {
 
 func parsePipeResponse(raw []byte) *pipeResponse {
 	resp := &pipeResponse{Raw: string(raw)}
-	sep := indexOfBytes(raw, []byte("\r\n\r\n"), 0)
+	sep := bytes.Index(raw, []byte("\r\n\r\n"))
 	if sep < 0 {
 		resp.Status = 0
 		resp.Body = resp.Raw
@@ -376,10 +395,11 @@ func decodeChunked(raw []byte, start int) string {
 	var sb strings.Builder
 	i := start
 	for i < len(raw) {
-		lineEnd := indexOfBytes(raw, []byte("\r\n"), i)
+		lineEnd := bytes.Index(raw[i:], []byte("\r\n"))
 		if lineEnd < 0 {
 			break
 		}
+		lineEnd += i
 		sizeText := string(raw[i:lineEnd])
 		if semi := strings.Index(sizeText, ";"); semi >= 0 {
 			sizeText = sizeText[:semi]
@@ -399,26 +419,4 @@ func decodeChunked(raw []byte, start int) string {
 		i += int(size) + 2
 	}
 	return sb.String()
-}
-
-func indexOfBytes(haystack, needle []byte, from int) int {
-	if len(needle) == 0 {
-		return -1
-	}
-	if from < 0 {
-		from = 0
-	}
-	for i := from; i <= len(haystack)-len(needle); i++ {
-		match := true
-		for j := range needle {
-			if haystack[i+j] != needle[j] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return i
-		}
-	}
-	return -1
 }

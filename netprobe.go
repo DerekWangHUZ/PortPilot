@@ -36,6 +36,10 @@ func canBindUDP(port int) bool {
 }
 
 func probePort(port int) map[string]any {
+	// dispatch 层把越界端口标成 0；这里统一返回“不监听、不可绑定”
+	if port < 1 || port > 65535 {
+		return map[string]any{"port": port, "listening": false, "bindable": false}
+	}
 	return map[string]any{
 		"port":      port,
 		"listening": tcpProbe(port, 350*time.Millisecond),

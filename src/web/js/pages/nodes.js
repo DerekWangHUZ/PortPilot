@@ -67,10 +67,12 @@
       return {
         html: html,
         after: function (root) {
+          /* 上一次渲染留下的 picker 已随宿主节点移除，统一清掉全局监听防泄漏 */
+          PP.ui.sweepSearchSelects();
           ports.forEach(function (p) {
             var host = root.querySelector('.picker-host[data-port="' + p.port + '"]');
             if (!host) return;
-            PP.ui.searchSelect(host, {
+            var inst = PP.ui.searchSelect(host, {
               options: v.nodes,
               value: p.node,
               placeholder: '选择节点',
@@ -80,6 +82,7 @@
                   '端口 ' + p.port + ' 已选择：' + name);
               }
             });
+            PP.ui.trackPicker(host, inst);
           });
         },
         handlers: {

@@ -31,8 +31,6 @@
     commands.push(cmd);
   }
 
-  function registerBatch(list2) { (list2 || []).forEach(register); }
-
   function matches(cmd, q) {
     if (!q) return true;
     var hay = ((cmd.label || '') + ' ' + (cmd.hint || '') + ' ' + (cmd.group || '') + ' ' + (cmd.keywords || ''))
@@ -174,7 +172,6 @@
 
   PP.commandPalette = {
     register: register,
-    registerBatch: registerBatch,
     open: open,
     close: close,
     isOpen: isOpen

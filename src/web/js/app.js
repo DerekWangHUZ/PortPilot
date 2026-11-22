@@ -40,7 +40,6 @@
   function applyTheme() {
     var dark = effectiveTheme() === 'dark';
     document.body.classList.toggle('theme-dark', dark);
-    pushFrameColor();
   }
 
   var ctx = {
@@ -348,12 +347,7 @@
     });
   }
 
-  /* ------------------------------------------------ 窗口按钮 / 拖动 / 描边色 */
-  function pushFrameColor() {
-    var dark = document.body.classList.contains('theme-dark');
-    PP.bridge.invoke('window.setFrame', { color: dark ? '#161617' : '#f7f7f9' }).catch(function () { });
-  }
-
+  /* ------------------------------------------------ 窗口按钮 / 拖动 */
   document.querySelectorAll('[data-win]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var act = btn.getAttribute('data-win');
@@ -437,7 +431,10 @@
   window.addEventListener('resize', function () { activeEdge = null; document.body.style.cursor = ''; });
 
   /* --------------------------------------------------------------- 启动 */
-  state.systemTheme = (window.PP_PREFERS_DARK === true) ? 'dark' : 'light';
+  /* 初始主题用系统偏好兜底（首个采样事件到来前，避免深色系统闪白）；
+     宿主 theme.get / theme 事件随后会给出准确值。 */
+  state.systemTheme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    ? 'dark' : 'light';
   document.body.classList.add('theme-dark');
 
   registerCommands();
