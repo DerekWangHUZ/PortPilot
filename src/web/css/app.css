@@ -303,18 +303,20 @@ body.theme-dark .window::after { border-color: oklch(1 0 0 / 15%); }
 html.is-desktop .window::after { display: none; }
 html.is-maximized .window::after { border-radius: 0; border-color: transparent; }
 
-/* 桌面唯一外框：+1px 微增半径让 45° 弧线落入 SetWindowRgn 1 位掩码安全区（模板 desktop.css） */
+/* 桌面唯一外框：inset 阴影环 + 基准圆角——环带落在 SetWindowRgn 1 位掩码内侧，
+   四角弧段与直线段一致（随模板 814eb23 修正；border + 圆角 +1px 会把环带推到
+   掩码之外，四角弧段被整段裁掉）。 */
 html.is-desktop body::after {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 120;
   pointer-events: none;
-  border-radius: calc(var(--window-radius) + 1px);
-  border: 1px solid oklch(0.2 0 0 / 15%);
+  border-radius: var(--window-radius);
+  box-shadow: inset 0 0 0 1px oklch(0.2 0 0 / 15%);
 }
-body.theme-dark.is-desktop body::after { border-color: oklch(1 0 0 / 15%); }
-html.is-desktop.is-maximized body::after { border-radius: 0; border-color: transparent; }
+body.theme-dark.is-desktop body::after { box-shadow: inset 0 0 0 1px oklch(1 0 0 / 15%); }
+html.is-desktop.is-maximized body::after { border-radius: 0; box-shadow: none; }
 
 /* 主区：链路第二段 */
 .main {
