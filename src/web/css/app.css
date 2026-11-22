@@ -416,14 +416,20 @@ html.is-desktop.is-maximized body::after { border-radius: 0; box-shadow: none; }
 }
 
 /* ================================================== S9 桌面拖拽带 */
-/* 内容区顶部 22px 拖拽带：够高好按住，[data-drag] 既有机制接管（js/app.js mousedown） */
+/* 内容区顶部 48px 拖拽带：填满工具栏上方整段让位，好抓不易脱手；
+   [data-drag] 既有机制接管（js/app.js mousedown） */
 .drag-strip {
   position: fixed;
   top: 0;
   left: calc(var(--sidebar-w) + var(--sidebar-gap));
   right: 0;
-  height: 22px;
+  height: 48px;
   z-index: 30;
+}
+
+/* 工具栏标题区（纯文本容器）一并可拖/双击最大化——macOS 惯例 */
+.toolbar__heading {
+  --pp-drag: drag;
 }
 
 /* ================================================== S3 真悬浮玻璃侧栏（五段解剖） */

@@ -363,17 +363,17 @@
     });
   });
 
-  /* 桌面接线：data-drag 拖动区（侧栏 chrome / header / drag-strip） */
+  /* 桌面接线：data-drag 拖动区（侧栏 chrome / header / drag-strip / 工具栏标题区） */
   document.addEventListener('mousedown', function (e) {
     if (e.button !== 0) return;
     if (e.target.closest('button, input, select, textarea, a')) return;
-    if (!e.target.closest('[data-drag], .drag-strip')) return;
+    if (!e.target.closest('[data-drag], .drag-strip, .toolbar__heading')) return;
     PP.bridge.invoke('window.beginDrag');
   });
 
   document.addEventListener('dblclick', function (e) {
     if (e.target.closest('button, input, select, textarea, a')) return;
-    if (!e.target.closest('[data-drag], .drag-strip')) return;
+    if (!e.target.closest('[data-drag], .drag-strip, .toolbar__heading')) return;
     PP.bridge.invoke('window.toggleMaximize').then(function (r) { setMaximized(!!(r && r.maximized)); });
   });
 
@@ -386,7 +386,7 @@
   var isDesktop = !!(window.go && window.go.main && window.go.main.App);
   document.documentElement.classList.toggle('is-desktop', isDesktop);
 
-  /* 桌面端：内容区顶部 22px 拖拽带（模板 desktop.js ensureDragStrip） */
+  /* 桌面端：内容区顶部 48px 拖拽带（模板 desktop.js ensureDragStrip） */
   function ensureDragStrip() {
     if (!document.body || document.querySelector('.drag-strip')) return;
     var strip = document.createElement('div');
