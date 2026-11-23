@@ -357,13 +357,11 @@
     });
   });
 
-  /* 桌面接线：data-drag 拖动区（侧栏 chrome / header / drag-strip / 工具栏标题区） */
-  document.addEventListener('mousedown', function (e) {
-    if (e.button !== 0) return;
-    if (e.target.closest('button, input, select, textarea, a')) return;
-    if (!e.target.closest('[data-drag], .drag-strip, .toolbar__heading')) return;
-    PP.bridge.invoke('window.beginDrag');
-  });
+  /* 拖动交给 Wails 内置实现（与 macUI-SolidGlass 同一接线）：
+     宿主设了 CSSDragProperty=--wails-draggable，运行时在元素的计算样式命中
+     drag 时会「等鼠标移动后」再 PostMessage(WM_NCLBUTTONDOWN)，移动回路才能正确
+     取到按键状态与光标位置。旧版在这里 mousedown 里同步 SendMessage，回路会立即
+     退出——这就是窗口顶部拖不动的根因。可拖区域见 app.css 的 --wails-draggable。 */
 
   document.addEventListener('dblclick', function (e) {
     if (e.target.closest('button, input, select, textarea, a')) return;
@@ -377,10 +375,12 @@
   });
 
   /* ------------------------------------------------ 桌面运行标记（S9） */
-  var isDesktop = !!(window.go && window.go.main && window.go.main.App);
-  document.documentElement.classList.toggle('is-desktop', isDesktop);
+  /* 这份界面只可能跑在 PortPilot 自己的 WebView2 里，所以不再（像旧版那样）检查
+     window.go 是否已注入——绑定可能晚于脚本求值，判定为 false 会让 is-desktop
+     丢失，窗口描边与拖拽带都不再出现。参考 macUI-SolidGlass：无条件标记。 */
+  document.documentElement.classList.add('is-desktop');
 
-  /* 桌面端：内容区顶部 48px 拖拽带（模板 desktop.js ensureDragStrip） */
+  /* 内容区顶部 48px 拖拽带（模板 desktop.js ensureDragStrip） */
   function ensureDragStrip() {
     if (!document.body || document.querySelector('.drag-strip')) return;
     var strip = document.createElement('div');
@@ -389,46 +389,12 @@
     strip.setAttribute('aria-hidden', 'true');
     document.body.appendChild(strip);
   }
-  if (isDesktop) ensureDragStrip();
+  ensureDragStrip();
 
-  /* ------------------------------------------------ 边缘拖动缩放（保留既有机制） */
-  var EDGE = 6;
-  var EDGE_CURSOR = {
-    left: 'w-resize', right: 'e-resize', top: 'n-resize', bottom: 's-resize',
-    topleft: 'nw-resize', topright: 'ne-resize', bottomleft: 'sw-resize', bottomright: 'se-resize'
-  };
-  var activeEdge = null;
-
-  function edgeAt(x, y) {
-    if (state.maximized) return null;
-    var w = window.innerWidth, h = window.innerHeight;
-    var left = x <= EDGE, right = x >= w - EDGE, top = y <= EDGE, bottom = y >= h - EDGE;
-    if (top && left) return 'topleft';
-    if (top && right) return 'topright';
-    if (bottom && left) return 'bottomleft';
-    if (bottom && right) return 'bottomright';
-    if (left) return 'left';
-    if (right) return 'right';
-    if (top) return 'top';
-    if (bottom) return 'bottom';
-    return null;
-  }
-
-  document.addEventListener('mousemove', function (e) {
-    var edge = edgeAt(e.clientX, e.clientY);
-    if (edge === activeEdge) return;
-    activeEdge = edge;
-    document.body.style.cursor = edge ? EDGE_CURSOR[edge] : '';
-  });
-
-  document.addEventListener('mousedown', function (e) {
-    if (e.button !== 0 || !activeEdge) return;
-    e.preventDefault();
-    e.stopPropagation();
-    PP.bridge.invoke('window.beginResize', { edge: activeEdge });
-  }, true);
-
-  window.addEventListener('resize', function () { activeEdge = null; document.body.style.cursor = ''; });
+/* 边缘缩放交给 Wails 内置实现：无边框 + 可缩放时，运行时在 navigationCompleted
+     里把 enableResize 置 true，mousemove 计算边缘、mousedown 发 resize:<边缘>，
+     宿主用 PostMessage(WM_NCLBUTTONDOWN, HT*) 启动缩放回路。旧版自己发
+     SendMessage，和拖动的病因相同，已删除。 */
 
   /* --------------------------------------------------------------- 启动 */
   /* 初始主题用系统偏好兜底（首个采样事件到来前，避免深色系统闪白）；

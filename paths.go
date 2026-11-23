@@ -7,7 +7,7 @@ import (
 
 const (
 	appName         = "PortPilot"
-	appVersion      = "1.4"
+	appVersion      = "1.5"
 	vergeDataFolder = "io.github.clash-verge-rev.clash-verge-rev"
 	pipePrefix      = `\\.\pipe\`
 )

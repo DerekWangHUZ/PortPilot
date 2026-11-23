@@ -13,7 +13,7 @@
 
 ## 下载
 
-下载 `PortPilot-v1.4-windows-amd64.exe`，双击运行，不需要安装，也不会在 exe 旁边生成任何文件。
+下载 `PortPilot-v1.5-windows-amd64.exe`，双击运行，不需要安装，也不会在 exe 旁边生成任何文件。
 
 > 首次运行未签名程序时，Windows 可能提示「无法验证发布者」，点「运行」即可；此后再打开不再提示。
 
@@ -74,7 +74,7 @@
 ```powershell
 node --test                        # 54 项单元测试（配置组装、tun 段做平、失效节点丢弃、模板读写、状态归一化、选节点自愈、TUN 自检恢复、reset 与选节点回退）
 go test ./...                      # 17 项 Go 单元测试（管道 HTTP 解析、原子写、日志轮转、端口探测）
-.\dist\PortPilot.exe --selftest    # 宿主自检：内嵌资源、管道发现、内核握手、文件原子写与备份、端口探测、主题
+.\dist\PortPilot.exe --selftest    # 宿主自检：内嵌资源与应用图标、管道发现、内核握手、文件原子写与备份、端口探测、主题
 node tests/e2e-pipeline.js 10801   # 真机端到端：真的开端口、代理流量、切节点、关闭、还原
 ```
 

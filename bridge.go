@@ -45,12 +45,9 @@ func (a *App) dispatch(method string, p map[string]any) (any, error) {
 			runtime.WindowMaximise(a.ctx)
 		}
 		return map[string]any{"ok": true, "maximized": runtime.WindowIsMaximised(a.ctx)}, nil
-	case "window.beginResize":
-		beginNativeResize(hitTestForEdge(getString(p, "edge", "left")))
-		return ok(), nil
-	case "window.beginDrag":
-		beginNativeDrag()
-		return ok(), nil
+	// window.beginDrag / window.beginResize 已移除：
+	// 拖动与缩放改由 Wails 内置的 CSSDragProperty + enableResize 处理，
+	// 前端不再调用这两个方法（自建 SendMessage 方案会让移动回路立刻退出）。
 	// window.setFrame 已移除：无边框窗口的底色由 Wails 的 BackgroundColour 负责，
 	// 该分支原本就是空操作，前端也不再调用。
 

@@ -56,6 +56,10 @@ func main() {
 		background = &options.RGBA{R: 28, G: 28, B: 30, A: 1}
 	}
 
+	// 窗口一出现就把外形裁成 32px 圆角（与 macUI-SolidGlass 同一套：
+	// 接管窗口过程，只在 WM_SIZE / WM_DPI_CHANGED 时重裁，不做定时轮询）
+	installWindowShapeWhenReady()
+
 	if err := wails.Run(&options.App{
 		Title:            appName,
 		Width:            1460,
@@ -68,8 +72,15 @@ func main() {
 		AssetServer:      &assetserver.Options{Assets: assets},
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
-		Bind:             []interface{}{app},
-		Logger:           fileLogger{},
+		// 拖动：Wails 内置 —— 计算样式为 --wails-draggable: drag 的元素可拖整窗。
+		// 运行时会等鼠标移动后再 PostMessage(WM_NCLBUTTONDOWN)，这是移动回路能
+		// 正确启动的前提（自建 mousedown→SendMessage 的旧方案不会动）。
+		CSSDragProperty: "--wails-draggable",
+		CSSDragValue:    "drag",
+		// 界面里没有「打开文件」的用法，把文件拖进来不该触发 WebView 导航
+		DragAndDrop: &options.DragAndDrop{DisableWebViewDrop: true},
+		Bind:        []interface{}{app},
+		Logger:      fileLogger{},
 		Windows: &windows.Options{
 			WebviewIsTransparent:              false,
 			WindowIsTranslucent:               false,
@@ -77,6 +88,8 @@ func main() {
 			ZoomFactor:                        1,
 			IsZoomControlEnabled:              false,
 			DisableFramelessWindowDecorations: false,
+			// 无边框窗口缩放时延后重排 WebView，减少拖动边缘时的抖动
+			ResizeDebounceMS: 60,
 			// 用 preflight 选定的目录，避免两处各算一个路径
 			WebviewUserDataPath: dataDir,
 			// Wails 自带提示框改成中文，免得用户看到一句英文不知所措

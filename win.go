@@ -9,29 +9,25 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// 无边框窗口的原生行为：拖动与缩放交给系统自己的窗口回路。
+// 无边框窗口的原生行为。拖动与缩放都不在这里做：Wails 内置的
+// CSSDragProperty（--wails-draggable）负责拖动，frameless + DisableResize:false
+// 让运行时在 navigationCompleted 里开启 enableResize，mousedown 时由宿主
+// PostMessage(WM_NCLBUTTONDOWN, HT*) 启动缩放回路。我们只负责窗口外形。
+//
 // 窗口外形（模板 window_shape.go 移植）：用 SetWindowRgn 裁 32px 圆角，
 // 与侧栏 20px 圆角 + 12px 外距同心（圆心同为 (32,32)）；最大化时清掉区域。
 //
-// 与模板的差异：PortPilot 的宿主是 Wails，没有独立 Go wndproc 可子类化
-// （模板自己开窗才接管 GWLP_WNDPROC）。这里不做双重子类化，改为：
-//   1) WM_SIZE / WM_DPICHANGED 由挂在前端的 Resize 监听触发 refreshWindowShape；
-//   2) 另起一个轻量 goroutine 轮询 IsZoomed（140ms），最大化/还原时清掉或重设区域，
-//      顺便把 is-maximized 状态推给前端（html class，见 app.js）。
-// 拖动/缩放回路的其余部分仍交给系统的 WM_NCLBUTTONDOWN 方案（不受影响）。
+// 与旧版的差异：
+//  1. 不再每 140ms 无条件重设区域。SetWindowRgn 每次调用都会让窗口重绘，
+//     并可能让系统投影/描边抖动；改为一次性接管窗口过程，只在
+//     WM_SIZE / WM_DPICHANGED 时重裁（与 macUI-SolidGlass 一致）。
+//  2. 拖动/缩放不再由 Go 侧 SendMessage 发起：在 WebView2 的消息处理里同步
+//     SendMessage(WM_NCLBUTTONDOWN) 会让移动回路立即退出，表现为窗口拖不动。
 
 const (
-	wmNCLButtonDown = 0x00A1
-	htCaption       = 2
-
-	htLeft        = 10
-	htRight       = 11
-	htTop         = 12
-	htTopLeft     = 13
-	htTopRight    = 14
-	htBottom      = 15
-	htBottomLeft  = 16
-	htBottomRight = 17
+	wmSize       = 0x0005
+	wmDpiChanged = 0x02E0
+	gwlWndProc   = ^uintptr(3) // GWLP_WNDPROC = -4
 
 	// S2 窗口圆角：32 DIP（圆心 (32,32)），与 --window-radius token 一致
 	cornerRadiusDIP = 32.0
@@ -41,25 +37,32 @@ var (
 	user32                       = windows.NewLazySystemDLL("user32.dll")
 	shell32                      = windows.NewLazySystemDLL("shell32.dll")
 	gdi32                        = windows.NewLazySystemDLL("gdi32.dll")
+	kernel32                     = windows.NewLazySystemDLL("kernel32.dll")
 	procEnumWindows              = user32.NewProc("EnumWindows")
 	procGetWindowThreadProcessID = user32.NewProc("GetWindowThreadProcessId")
 	procIsWindowVisible          = user32.NewProc("IsWindowVisible")
-	procReleaseCapture           = user32.NewProc("ReleaseCapture")
-	procSendMessageW             = user32.NewProc("SendMessageW")
 	procGetWindowTextW           = user32.NewProc("GetWindowTextW")
 	procGetDpiForWindow          = user32.NewProc("GetDpiForWindow")
 	procIsZoomed                 = user32.NewProc("IsZoomed")
 	procGetWindowRect            = user32.NewProc("GetWindowRect")
 	procSetWindowRgn             = user32.NewProc("SetWindowRgn")
+	procSetWindowLongPtrW        = user32.NewProc("SetWindowLongPtrW")
+	procCallWindowProcW          = user32.NewProc("CallWindowProcW")
 	procCreateRoundRectRgn       = gdi32.NewProc("CreateRoundRectRgn")
 	procDeleteObject             = gdi32.NewProc("DeleteObject")
 	procShellExecuteW            = shell32.NewProc("ShellExecuteW")
+	procLoadIconW                = user32.NewProc("LoadIconW")
+	procGetModuleHandleW         = kernel32.NewProc("GetModuleHandleW")
+
+	shapeHWND   uintptr
+	prevWndProc uintptr
 )
 
 type winRect struct {
 	Left, Top, Right, Bottom int32
 }
 
+// mainWindowHandle 找出本进程那个可见、有标题的顶层窗口。
 func mainWindowHandle() uintptr {
 	pid := windows.GetCurrentProcessId()
 	var found uintptr
@@ -127,16 +130,46 @@ func applyWindowShape(hwnd uintptr) {
 	}
 }
 
-// refreshWindowShape 供外部在尺寸 / DPI 变化时调用（main.go OnStartup 里通过
-// app 注册 Resize/DPICHANGED 事件回调，见 app.go）。幂等，找不到窗口时静默返回。
-func refreshWindowShape() {
-	applyWindowShape(mainWindowHandle())
+// installWindowShape 接管窗口过程，在尺寸 / DPI 变化时重新裁剪；只安装一次。
+func installWindowShape(hwnd uintptr) {
+	shapeHWND = hwnd
+	if prevWndProc == 0 {
+		cb := syscall.NewCallback(func(h, msg, wparam, lparam uintptr) uintptr {
+			ret, _, _ := procCallWindowProcW.Call(prevWndProc, h, msg, wparam, lparam)
+			if msg == wmSize || msg == wmDpiChanged {
+				applyWindowShape(h)
+			}
+			return ret
+		})
+		prev, _, err := procSetWindowLongPtrW.Call(hwnd, gwlWndProc, cb)
+		if prev == 0 || (err != nil && err != syscall.Errno(0)) {
+			logLine("窗口外形：接管窗口过程失败，缩放时圆角可能不同步")
+		}
+		prevWndProc = prev
+	}
+	applyWindowShape(hwnd)
 }
 
-// watchWindowState 轻量轮询窗口最大化状态：变化时同步裁角，
-// 并把 is-maximized 推给前端（html.is-maximized，CSS 归零圆角与描边）。
-// 每 140ms 一次 IsZoomed，代价可忽略；stopCh 关闭即退出。
+// installWindowShapeWhenReady 在窗口出现后立刻裁剪，避免先看到系统方角。
+// 只轮询很短一段时间（窗口通常几十毫秒内就出现），装好即结束。
+func installWindowShapeWhenReady() {
+	go func() {
+		for i := 0; i < 200; i++ {
+			if hwnd := mainWindowHandle(); hwnd != 0 {
+				installWindowShape(hwnd)
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		logLine("窗口外形：等待主窗口超时，未应用圆角裁剪")
+	}()
+}
+
+// watchWindowState 同步最大化状态给前端（html.is-maximized，CSS 归零圆角与描边）。
+// 只做状态采样：找到窗口后缓存句柄，之后每 140ms 只问一次 IsZoomed。
+// 圆角区域由窗口过程在 WM_SIZE 里维护，这里不再重设。
 func watchWindowState(stop <-chan struct{}, onMaximized func(bool)) {
+	var hwnd uintptr
 	lastZoomed := -1 // -1 = 未采样
 	for {
 		select {
@@ -144,18 +177,16 @@ func watchWindowState(stop <-chan struct{}, onMaximized func(bool)) {
 			return
 		case <-time.After(140 * time.Millisecond):
 		}
-		hwnd := mainWindowHandle()
 		if hwnd == 0 {
-			continue
+			hwnd = mainWindowHandle()
+			if hwnd == 0 {
+				continue
+			}
 		}
 		zoomed := 0
 		if z, _, _ := procIsZoomed.Call(hwnd); z != 0 {
 			zoomed = 1
 		}
-		// 每次采样都无条件按当前状态同步区域：最大化清掉、还原重裁。
-		// 不能依赖 SetWindowRgn 的返回值——传 NULL 清空时成功也返回非 0，
-		// `if ok == 0 { DeleteObject }` 只对「传了新区域但失败」成立。
-		applyWindowShape(hwnd)
 		if zoomed != lastZoomed {
 			lastZoomed = zoomed
 			if onMaximized != nil {
@@ -165,44 +196,12 @@ func watchWindowState(stop <-chan struct{}, onMaximized func(bool)) {
 	}
 }
 
-func beginNativeDrag() {
-	hwnd := mainWindowHandle()
-	if hwnd == 0 {
-		return
-	}
-	procReleaseCapture.Call()
-	procSendMessageW.Call(hwnd, uintptr(wmNCLButtonDown), uintptr(htCaption), 0)
-}
-
-func beginNativeResize(hitTest int) {
-	hwnd := mainWindowHandle()
-	if hwnd == 0 {
-		return
-	}
-	procReleaseCapture.Call()
-	procSendMessageW.Call(hwnd, uintptr(wmNCLButtonDown), uintptr(hitTest), 0)
-}
-
-func hitTestForEdge(edge string) int {
-	switch edge {
-	case "left":
-		return htLeft
-	case "right":
-		return htRight
-	case "top":
-		return htTop
-	case "topleft":
-		return htTopLeft
-	case "topright":
-		return htTopRight
-	case "bottom":
-		return htBottom
-	case "bottomleft":
-		return htBottomLeft
-	case "bottomright":
-		return htBottomRight
-	}
-	return htLeft
+// loadAppIcon 按 Wails 的约定（AppIconID = 3）加载本 exe 的应用图标。
+// 返回 0 表示资源缺失——winresgen 把图标组注册成命名资源时就会这样。
+func loadAppIcon() uintptr {
+	hInst, _, _ := procGetModuleHandleW.Call(0)
+	icon, _, _ := procLoadIconW.Call(hInst, 3)
+	return icon
 }
 
 func shellOpen(path string) error {

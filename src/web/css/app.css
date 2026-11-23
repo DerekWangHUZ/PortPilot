@@ -318,7 +318,11 @@ html.is-desktop body::after {
   border-radius: var(--window-radius);
   box-shadow: inset 0 0 0 1px oklch(0.2 0 0 / 15%);
 }
-body.theme-dark.is-desktop body::after { box-shadow: inset 0 0 0 1px oklch(1 0 0 / 15%); }
+/* 深色系统下描边改白色（旧选择器 body.theme-dark.is-desktop body::after
+   要求 body 同时带两个 class 再嵌一层 body，永远不匹配——深色下描边不可见） */
+html.is-desktop body.theme-dark::after {
+  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 20%);
+}
 html.is-desktop.is-maximized body::after { border-radius: 0; box-shadow: none; }
 
 /* 主区：链路第二段 */
@@ -419,8 +423,29 @@ html.is-desktop.is-maximized body::after { border-radius: 0; box-shadow: none; }
 }
 
 /* ================================================== S9 桌面拖拽带 */
-/* 内容区顶部 48px 拖拽带：填满工具栏上方整段让位，好抓不易脱手；
-   [data-drag] 既有机制接管（js/app.js mousedown） */
+/* 拖动由 Wails 内置实现（与 macUI-SolidGlass 同一套）：宿主声明 CSSDragProperty
+   = --wails-draggable，运行时在元素计算样式命中 drag 时启动移动回路。
+   自定义属性会向下继承，所以交互元素必须单独写 no-drag，否则按钮点不动。 */
+.sidebar__chrome,
+.sidebar__header,
+.drag-strip,
+.toolbar__heading,
+[data-drag] { --wails-draggable: drag; }
+
+.traffic,
+.sidebar__search-wrap,
+.nav-group,
+.nav-section-title,
+.sidebar__footer,
+.toolbar__actions,
+.view,
+button,
+input,
+select,
+textarea,
+a { --wails-draggable: no-drag; }
+
+/* 内容区顶部 48px 拖拽带：填满工具栏上方整段让位，好抓不易脱手 */
 .drag-strip {
   position: fixed;
   top: 0;
@@ -428,11 +453,6 @@ html.is-desktop.is-maximized body::after { border-radius: 0; box-shadow: none; }
   right: 0;
   height: 48px;
   z-index: 30;
-}
-
-/* 工具栏标题区（纯文本容器）一并可拖/双击最大化——macOS 惯例 */
-.toolbar__heading {
-  --pp-drag: drag;
 }
 
 /* ================================================== S3 真悬浮玻璃侧栏（五段解剖） */
@@ -485,17 +505,12 @@ html.is-desktop.is-maximized body::after { border-radius: 0; box-shadow: none; }
   width: 24px;
   height: 24px;
   border-radius: 6.5px;
-  background: var(--blue);
-  color: #fff;
-  font-weight: 800;
-  font-size: 13px;
-  display: grid;
-  place-items: center;
+  object-fit: cover;
+  display: block;
   flex: none;
-  box-shadow:
-    inset 0 1px 0 var(--primary-rim),
-    inset 0 -1px 0 var(--primary-under),
-    0 1px 2px var(--glass-contact);
+  user-select: none;
+  -webkit-user-drag: none;
+  box-shadow: 0 1px 2px var(--glass-contact);
 }
 .sidebar__logo-text {
   font-size: var(--font-title3-size);

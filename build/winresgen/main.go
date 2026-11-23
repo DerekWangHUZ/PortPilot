@@ -1,5 +1,5 @@
 // 生成 Windows 资源 COFF 对象（.syso），复刻 Wails CLI 在 wails build 时做的事：
-//   - 应用图标    build/windows/icon.ico        -> RT_GROUP_ICON "APPICON"
+//   - 应用图标    build/windows/icon.ico        -> RT_GROUP_ICON #3
 //   - DPI 清单    build/windows/wails.exe.manifest -> RT_MANIFEST
 //   - 版本信息    build/windows/info.json       -> RT_VERSION
 //
@@ -35,7 +35,11 @@ func main() {
 	icon, err := winres.LoadICO(f)
 	must(err)
 	_ = f.Close()
-	must(rs.SetIcon(winres.Name("APPICON"), icon))
+	// 与官方 wails build 一致：图标组注册为数字 ID 3（winres.RT_ICON）。
+	// Wails 的窗口图标是按 winc.AppIconID=3 用 LoadIcon(hInstance, 3) 取的；
+	// 用命名资源（如 "APPICON"）资源管理器能显示文件图标，但窗口/任务栏图标
+	// 会加载失败，Wails 会静默跳过 SetIcon。
+	must(rs.SetIcon(winres.RT_ICON, icon))
 
 	xml, err := os.ReadFile(filepath.Join(win, "wails.exe.manifest"))
 	must(err)

@@ -60,10 +60,19 @@ func runSelfTest() int {
 	if subErr != nil {
 		check("embed.root", false, subErr.Error())
 	} else {
-		for _, name := range []string{"index.html", "js/app.js", "css/app.css", "shared/api.js", "shared/core.js"} {
+		for _, name := range []string{"index.html", "js/app.js", "css/app.css", "shared/api.js", "shared/core.js", "assets/app-icon.png"} {
 			_, statErr := fs.Stat(assets, name)
 			check("embed."+strings.ReplaceAll(name, "/", "_"), statErr == nil, name)
 		}
+	}
+
+	// 2.5 窗口图标：Wails 用 LoadIcon(hInstance, AppIconID=3) 取应用图标。
+	// 资源必须注册在数字 ID 3（winres.RT_ICON）；注册成命名资源时资源管理器
+	// 仍能显示文件图标，但窗口/任务栏图标会静默没有——这里直接验证 ID 3 可加载。
+	if icon := loadAppIcon(); icon == 0 {
+		check("icon.resource", false, "LoadIcon(hInstance, 3) 失败：图标资源不在数字 ID 3")
+	} else {
+		check("icon.resource", true, "窗口图标资源 ID 3 可加载")
 	}
 
 	// 3. Clash Verge 与内核

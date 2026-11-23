@@ -2,6 +2,23 @@
 
 版本号只保留两级：`v<主>.<次>`。
 
+## v1.5 — 2026-11-24
+
+### 修复
+- **窗口拖不动**：拖动原本是前端 mousedown → Go 同步 `SendMessage(WM_NCLBUTTONDOWN, HTCAPTION)`，消息在 WebView2 的处理里发起，窗口的移动回路立即退出，表现为按住拖动毫无反应。改为 macUI-SolidGlass 的做法：宿主声明 `CSSDragProperty=--wails-draggable`，界面用 `--wails-draggable: drag` 标注可拖区域（侧栏 chrome / 侧栏头部 / 内容区顶部 48px 拖拽带 / 工具栏标题区），交互元素统一 `no-drag`；Wails 运行时在鼠标**移动后**才 `PostMessage` 启动移动回路
+- **边缘缩放同样无效**：自建 `SendMessage(HT*)` 与拖动同一病因，改回 Wails 内置（`enableResize` + `resize:<edge>`）
+- **窗口/任务栏图标一直没加载**：资源生成把图标组注册成命名资源 `"APPICON"`，而 Wails 按 `winc.AppIconID = 3` 用 `LoadIcon(hInstance, 3)` 取图标（官方构建写的是 `winres.RT_ICON`，即数字 ID 3）。资源管理器仍能按命名找到图标组，所以 exe 文件图标一直正常，只有窗口拿到 `0` 后静默跳过 `SetIcon`。改为数字 ID 3，并在 `--selftest` 增加 `icon.resource` 检查
+- **窗口外缘描边在深色下不可见**：选择器 `body.theme-dark.is-desktop body::after` 要求 body 同时带两个 class 再嵌一层 body，永远不匹配；改为 `html.is-desktop body.theme-dark::after`（深色下白色 20%）
+- **`is-desktop` 判定过早**：`window.go` 绑定可能晚于脚本求值，一旦判成 false，`is-desktop` 丢失、拖拽带不创建、窗口描边失效。改为无条件标记（这份界面只在桌面宿主里跑）
+
+### 界面
+- **侧栏品牌标记改回应用图标图片**：`c5d737f` 把 `--blue` 改成近黑后，那个位置变成墨底白 P；现在直接内嵌 `assets/app-icon.png`（与 exe/任务栏图标同源），不再用文字 P + 背景色模拟
+- 窗口外形不再每 140ms 无条件重设区域：接管窗口过程，只在 `WM_SIZE` / `WM_DPICHANGED` 重裁（对齐 macUI-SolidGlass），减少重绘与投影抖动
+
+### 测试
+- 自检新增 `icon.resource`（`LoadIcon(hInstance, 3)` 非 0）与 `embed.assets_app-icon.png` 两项，防止图标资源再次静默失效
+- 单元测试维持 54 项（Node）+ 17 项（Go）
+
 ## v1.4 — 2026-11-23
 
 ### 修复
